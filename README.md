@@ -43,6 +43,13 @@ the `unit` is piece of stringified text. `if` and `else` both make sense, but `i
 )
 ```
 
+notes:
+- transformations pertaining to control flow can't use exceptions, if existing code uses exceptions it would get in the way. use `yield`, loops, `continue`, etc instead.
+
+style points:
+- nice comments, use some ascii art to explain
+- nice varnames
+
 # and, or, not
 
 these operators have very low "bind power" - "precedence" - etc, we don't need to account for everything else.
@@ -71,6 +78,25 @@ you could use bitwise, but that won't work with bitwise not.
 ~True == -2 == ~1       # not right
 ```
 
+that's replacing, but exact precedence?
+
+```py
+>>> import ast
+>>> print(ast.dump(ast.parse('not True and False', mode='eval'), indent=4))
+Expression(
+    body=BoolOp(
+        op=And(),
+        values=[
+            UnaryOp(
+                op=Not(),
+                operand=Constant(value=True)),
+            Constant(value=False)]))
+```
+
+> `not True and False` is parsed as `(not True) and False`
+
+when you hit `not` keep scanning till you hit `and` or `or` or EOL, then you have the expression.
+
 # else
 
 ```py
@@ -84,7 +110,6 @@ else:
 > original
 
 ```py
-
 _cond3 = True
 if cond1():
     _cond3 = False
@@ -97,10 +122,77 @@ if _cond3:
 ```
 > transformation
 
-- [ ] elif
-- [ ] assert
-- [ ] return
-- [ ] break
+# elif
+
+```py
+if cond1():
+    # cond1
+elif cond2():
+    # cond2
+else:
+    # cond3
+```
+> original
+```py
+if cond1():
+    # cond1
+else:
+    if cond2():
+        # cond2
+    else:
+        # cond3
+```
+> transformation
+
+# assert
+
+```py
+assert expr(), 'test'
+```
+> original
+```py
+if not expr():
+    raise AssertionError('test')
+```
+> transformation
+
+# return
+
+```py
+def func():
+    if test:
+        return 10
+
+a = func()
+```
+> original
+```py
+def func():
+    if test:
+        yield 10
+    yield None
+
+a = next(func())
+```
+> transformation
+
+# break
+
+```py
+while cond():
+    if expr():
+        break
+```
+> original
+```py
+_while0 = True
+while (cond()) and _while0:
+    if expr():
+        _while0 = False
+        continue
+```
+> transformation
+
 - [ ] for (counter)
 - [ ] in
 - [ ] for (iterator)
