@@ -20,6 +20,12 @@ class IRUnit:
 	src: str
 
 @dataclass
+class IRFor:
+	lhs: 'IRNode'
+	rhs: 'IRNode'
+	body: List['IrNode']
+
+@dataclass
 class IRWhile:
 	cond: 'IRNode'
 	body: List['IrNode']
@@ -50,7 +56,7 @@ class IRElse:
 class IRAssert:
 	exprs: List['IrNode']
 
-IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRBreak | IRReturn | IRFn
+IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRFor | IRBreak | IRReturn | IRFn
 
 def tokenise_first(line: str) -> str:
 	"""
@@ -166,6 +172,15 @@ class Program:
 					expr_str = dedented_line[len(token):].strip().removesuffix(":")
 					body = self.construct_ir(current_indent)
 					stmts.append(IRWhile(self.construct_expr(expr_str), body))
+				case 'for':
+					# for expr in expr:
+					#     ^^^^    ^^^^
+					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split("in")
+					assert len(expr_strs) == 2
+					expr_strs[0] = expr_strs[0].strip()
+					expr_strs[1] = expr_strs[1].strip()
+					body = self.construct_ir(current_indent)
+					stmts.append(IRFor(self.construct_expr(expr_strs[0]), self.construct_expr(expr_strs[1]), body))
 				case 'break':
 					stmts.append(IRBreak())
 				#case 'for':
@@ -173,9 +188,9 @@ class Program:
 				#	#     ^^^^    ^^^^
 				#	expr = dedented_line[len(token):].strip().removesuffix(":")
 				case expr:
-					# handle while, it may have exprs
+					dedented_line_no_comments = dedented_line.split('#', 1)[0]
 					
-					if ":" in dedented_line:
+					if ":" in dedented_line_no_comments:
 						assert keyword.iskeyword(token) # it should be.
 						expr_str = dedented_line[len(token):].strip().removesuffix(":")
 						body = self.construct_ir(current_indent)
@@ -272,8 +287,8 @@ class Program:
 		if contains_break:	
 			nbody.append(IRUnit(f"{tmp} = True"))
 			expr_str = f"{tmp} and {node.cond.src}"
-		else:
 			self.tmp_break_stack.pop()
+		else:
 			expr_str = node.cond.src
 
 		nbody.append(IRWhile(IRUnit(expr_str), transformed))

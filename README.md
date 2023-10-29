@@ -187,7 +187,28 @@ while _while0 and cond(): # short circuit
 ```
 > transformation
 
-- [ ] for (counter)
+# for (counter) + for (iterator)
+
+possible for a for loop to unpack into multiple variables, look out for that.
+
+```py
+for v in range(0, 15):
+    print(v)
+```
+> original
+```py
+_iter0 = iter(range(0, 15))
+_for0 = True
+while _for0:
+	try:
+		v = next(_iter0)
+	except StopIteration:
+		_for0 = False
+		continue
+	print(v)
+```
+> transformation
+
 - [ ] in
-- [ ] for (iterator)
+- [ ] 
 - [ ] Combinations of the above
