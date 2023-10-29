@@ -83,7 +83,7 @@ class Program:
 		self.function_decls = {}
 		#
 		self.tmp_break_stack = []
-		self.tmp_counter = 0
+		self.tmp_counter_prefix = {}
 		self.program = self.construct_ir(0)
 	
 	def line_rewind(self):
@@ -221,8 +221,12 @@ class Program:
 	def transform_new_temp_var(self, relation: str) -> str:
 		# relation: "while"
 		# -> _while0
-		tmp = f"_{relation}{self.tmp_counter}"
-		self.tmp_counter += 1
+
+		if relation not in self.tmp_counter_prefix:
+			self.tmp_counter_prefix[relation] = 0
+		
+		tmp = f"_{relation}{self.tmp_counter_prefix[relation]}"
+		self.tmp_counter_prefix[relation] += 1
 		return tmp
 
 	def transform_walk_if(self, body: List[IRNode]) -> List[IRNode]:
@@ -230,7 +234,6 @@ class Program:
 		if len(body) == 1:
 			# body[0] must be a IRIf
 			node = body[0]
-			print(node)
 			transformed = self.transform_recurse(node.body)
 			node.body = transformed
 			return [node]

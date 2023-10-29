@@ -26,3 +26,6 @@ for v in range(0, 15):
 	if v == 2:
 		break
 	print(v)
+
+for v in cond():
+	pass
