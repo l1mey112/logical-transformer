@@ -1,6 +1,8 @@
 from typing import *
 from dataclasses import dataclass
+from enum import Flag, auto
 import keyword
+import sys
 
 @dataclass
 class IRIndent:
@@ -45,6 +47,22 @@ class IRAssert:
 	exprs: List['IrNode']
 
 IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRBreak | IRReturn | IRFn
+
+class Transformations(Flag):
+	# logical
+	AND = auto()
+	OR = auto()
+	NOT = auto()
+	# expr
+	IN = auto()
+	# control flow
+	FOR = auto()
+	ELSE = auto()
+	ELIF = auto()
+	RETURN = auto()
+	BREAK = auto()
+	# stmts
+	ASSERT = auto()
 
 def tokenise_first(line: str) -> str:
 	"""
@@ -142,8 +160,10 @@ class Program:
 					#        ^^^^  ^^^^
 					#
 					# assert does not allow comma expressions in expr0
-					exprs = map(self.construct_expr, map(str.strip, dedented_line[len(token):].split(",")))
-					stmts.append(IRAssert(exprs))	
+					exprs = []
+					for line in dedented_line[len(token):].split(","):
+						exprs.append(self.construct_expr(line.strip()))
+					stmts.append(IRAssert(exprs))
 				#case 'break':
 				#	stmts.append(IRBreak())
 				#case 'for':
@@ -166,6 +186,27 @@ class Program:
 					# todo: everything else
 		
 		return stmts
+	
+	def transform_recurse(self, body: List[IRNode], passes: Transformations):
+		"""transform: walk the entire IR, apply transformations"""
+
+		# work on stmts, this will shuffle expressions
+		for index, op in enumerate(body):
+			match op:
+				case IRAssert(exprs):
+					if Transformations.ASSERT not in passes:
+						continue
+					raise_str = "raise AssertionError" if len(exprs) == 1 else f"raise AssertionError({self.transpile_expr(exprs[1])})"
+					self.program[index] = IRIf(IRUnit(f"not {self.transpile_expr(exprs[0])}"), [IRUnit(raise_str)])
+				
+				case other:
+					print(f"unhandled IR: {other}", file=sys.stderr)
+		
+		# work on expressions, to remove keywords introduced by previous stmt transformations
+	
+	def transform(self, passes: Transformations):
+		"""transform: walk the entire IR, apply transformations"""
+		self.transform_recurse(passes, self.program)
 
 	def transpile_expr(self, expr: IRNode) -> str:
 		match expr:
@@ -204,6 +245,5 @@ class Program:
 					code.append(f"{indent_line}{self.transpile_expr(other)}")
 		return code
 
-	# def transform
 	def transpile(self) -> str:
 		return "\n".join(self.transpile_recurse(self.program, 0))

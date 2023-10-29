@@ -52,50 +52,13 @@ style points:
 
 # and, or, not
 
-these operators have very low "bind power" - "precedence" - etc, we don't need to account for everything else.
+(i had a lot of text here going over bind power and operator precedence, but i think it's better to use this instead)
 
-> all logical operators have VERY LOW precedence
+1. `expr and expr` -> `expr & expr`
+1. `expr or expr` -> `expr | expr`
+1. `not expr` -> `False == expr`
 
-so to select an expression that is related to these operators, scan until you reach another one (or a EOL).
-
-```
-and ... ... ... ... and
-    ^^^^^^^^^^^^^^^   \- not here, this has a low precedence
-                  \- this is the expression
-```
-
-simple arithmetic can replace these operators, python has C like truthiness.
-
-```py
-True - 1 == False       # not operator
-True * False == False   # and operator
-True + False == True    # or operator
-```
-
-you could use bitwise, but that won't work with bitwise not.
-
-```py
-~True == -2 == ~1       # not right
-```
-
-that's replacing, but exact precedence?
-
-```py
->>> import ast
->>> print(ast.dump(ast.parse('not True and False', mode='eval'), indent=4))
-Expression(
-    body=BoolOp(
-        op=And(),
-        values=[
-            UnaryOp(
-                op=Not(),
-                operand=Constant(value=True)),
-            Constant(value=False)]))
-```
-
-> `not True and False` is parsed as `(not True) and False`
-
-when you hit `not` keep scanning till you hit `and` or `or` or EOL, then you have the expression.
+this will coerce away from `bool`, but that's mostly fine, the condition expr in an `if` will coerce back to `bool`.
 
 # else
 
@@ -144,6 +107,30 @@ else:
 ```
 > transformation
 
+# else + elif
+
+```py
+if cond1():
+    # cond1
+elif cond2():
+    # cond2
+else:
+    # cond3
+```
+> original
+```py
+_else = True
+if cond1():
+    _else = False
+    # cond1
+if not _else and cond2():
+    _else = False
+    # cond2
+if _else:
+    # cond3
+```
+> transformation
+
 # assert
 
 ```py
@@ -186,7 +173,7 @@ while cond():
 > original
 ```py
 _while0 = True
-while (cond()) and _while0:
+while _while0 and cond(): # short circuit
     if expr():
         _while0 = False
         continue
