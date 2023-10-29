@@ -259,22 +259,24 @@ class Program:
 
 		return nbody
 	
-	def transform_while_contains_break(self, node: IRWhile) -> bool:
+	def transform_body_contains_break(self, node: IRWhile) -> bool:
 		for op in node.body:
 			match op:
 				case IRWhile():
 					pass # break doesn't refer to this while
+				case IRFor():
+					pass # break doesn't refer to this for
 				case IRBreak():
 					return True
 				case other:
 					if hasattr(other, 'body'):
-						if self.transform_while_contains_break(other):
+						if self.transform_body_contains_break(other):
 							return True
 		
 		return False
 
 	def transform_while(self, node: IRWhile) -> List[IRNode]:
-		contains_break = self.transform_while_contains_break(node)
+		contains_break = self.transform_body_contains_break(node)
 
 		nbody = []
 
@@ -295,6 +297,35 @@ class Program:
 		
 		return nbody
 	
+	def transform_for(self, node: IRFor) -> List[IRNode]:
+		# always need break
+		# contains_break = self.transform_body_contains_break(node)
+
+		iter_tmp = self.transform_new_temp_var("iter")
+		for_tmp = self.transform_new_temp_var("for")
+		nbody = []
+
+		self.tmp_break_stack.append(for_tmp)
+		transformed = self.transform_recurse(node.body)
+		self.tmp_break_stack.pop()
+
+		# TRY EXCEPT StopIteration
+		wnbody = [
+			IRIndent('try', IRUnit(''), [
+				IRUnit(f"{node.lhs.src} = next({iter_tmp})")
+			]),
+			IRIndent('except', IRUnit('StopIteration'), [
+				IRUnit(f"{for_tmp} = False"),
+				IRUnit(f"continue"),
+			]),
+		] + transformed
+
+		nbody.append(IRUnit(f"{iter_tmp} = iter({node.rhs.src})"))
+		nbody.append(IRUnit(f"{for_tmp} = True"))
+		nbody.append(IRWhile(IRUnit(f"{for_tmp}"), wnbody))
+
+		return nbody
+	
 	def transform_recurse(self, body: List[IRNode]) -> List[IRNode]:
 		nbody = []
 
@@ -308,6 +339,8 @@ class Program:
 					nbody.append(new_expr)
 				case IRWhile():
 					nbody += self.transform_while(op)
+				case IRFor():
+					nbody += self.transform_for(op)
 				case IRIf():
 					if_stmts = self.transform_find_bounds_of_if(index, body)
 					nbody += self.transform_walk_if(if_stmts)
@@ -354,10 +387,17 @@ class Program:
 				case IRWhile(cond, body):
 					code.append(f"{indent_line}while {self.transpile_expr(cond)}:")
 					code += self.transpile_recurse(body, indent + 1)
+				case IRFor(lhs, rhs, body):
+					code.append(f"{indent_line}while {self.transpile_expr(lhs)} in {self.transpile_expr(rhs)}:")
+					code += self.transpile_recurse(body, indent + 1)
 				case IRBreak():
 					code.append(f"{indent_line}break")
 				case IRIndent(token, expr, body):
-					code.append(f"{indent_line}{token} {self.transpile_expr(expr)}:")
+					expr_str = self.transpile_expr(expr)
+					if expr_str == '':
+						code.append(f"{indent_line}{token}:")
+					else:	
+						code.append(f"{indent_line}{token} {expr_str}:")
 					code += self.transpile_recurse(body, indent + 1)
 				case IRAssert(exprs):
 					exprs_str = ", ".join(map(self.transpile_expr, exprs))
