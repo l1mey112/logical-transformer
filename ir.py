@@ -1,8 +1,16 @@
 from typing import *
 from dataclasses import dataclass
+import keyword
 
 @dataclass
 class IRIndent:
+	token: str
+	expr: 'IRNode'
+	body: List['IrNode']
+
+@dataclass
+class IRFn:
+	name: str
 	src: str
 	body: List['IrNode']
 
@@ -15,7 +23,16 @@ class IRBreak:
 	pass
 
 @dataclass
+class IRReturn:
+	expr: 'IRNode'
+
+@dataclass
 class IRIf:
+	cond: 'IRNode'
+	body: List['IrNode']
+
+@dataclass
+class IRElif:
 	cond: 'IRNode'
 	body: List['IrNode']
 
@@ -27,7 +44,7 @@ class IRElse:
 class IRAssert:
 	exprs: List['IrNode']
 
-IRNode = IRUnit | IRIf | IRElse | IRIndent | IRAssert | IRBreak
+IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRBreak | IRReturn | IRFn
 
 def tokenise_first(line: str) -> str:
 	"""
@@ -46,8 +63,9 @@ class Program:
 		self.lines = program_src.split("\n")
 		self.index = 0
 		self.lines_iterator = iter(self.line_next, None)
+		self.function_decls = {}
+		#
 		self.program = self.construct_ir(0)
-		self.expected_indent = 0
 	
 	def line_rewind(self):
 		if self.index > 0:
@@ -67,7 +85,10 @@ class Program:
 		#   3. or
 		#   4. and
 
-		pass
+		# if test is function
+		#   1. call()
+
+		return IRUnit(expr)
 	
 	def construct_ir(self, last_indent: int) -> List[IRNode]:
 		stmts = []
@@ -96,15 +117,32 @@ class Program:
 				case 'if':
 					# if expr:
 					#    ^^^^
-					expr = dedented_line[len(token):].strip().removesuffix(":")
+					expr_str = dedented_line[len(token):].strip().removesuffix(":")
 					body = self.construct_ir(current_indent)
-					stmts.append(IRIf(IRUnit(expr), body))
+					stmts.append(IRIf(self.construct_expr(expr_str), body))
+				case 'elif':
+					# elif expr:
+					#      ^^^^
+					expr_str = dedented_line[len(token):].strip().removesuffix(":")
+					body = self.construct_ir(current_indent)
+					stmts.append(IRElif(self.construct_expr(expr_str), body))
+				case 'else':
+					stmts.append(IRElse(self.construct_ir(current_indent)))
+				case 'def':
+					name = dedented_line[len(token):].split('(', 1)[0].strip()
+					body = self.construct_ir(current_indent)
+					func = IRFn(name, dedented_line, body)
+					self.function_decls[name] = func
+					stmts.append(func)
+				case 'return':
+					expr = self.construct_expr(dedented_line[len(token):].strip())
+					stmts.append(IRReturn(expr))
 				case 'assert':
 					# assert expr, expr
 					#        ^^^^  ^^^^
 					#
 					# assert does not allow comma expressions in expr0
-					exprs = map(str.strip, dedented_line[len(token):].split(","))
+					exprs = map(self.construct_expr, map(str.strip, dedented_line[len(token):].split(",")))
 					stmts.append(IRAssert(exprs))	
 				#case 'break':
 				#	stmts.append(IRBreak())
@@ -113,16 +151,28 @@ class Program:
 				#	#     ^^^^    ^^^^
 				#	expr = dedented_line[len(token):].strip().removesuffix(":")
 				case expr:
+					# handle while, it may have exprs
+					
 					if ":" in dedented_line:
+						assert keyword.iskeyword(token) # it should be.
+						expr_str = dedented_line[len(token):].strip().removesuffix(":")
 						body = self.construct_ir(current_indent)
-						stmts.append(IRIndent(dedented_line, body))
+						stmts.append(IRIndent(token, self.construct_expr(expr_str), body))
 					else:
-						stmts.append(IRUnit(dedented_line))
+						expr_str = dedented_line
+						stmts.append(self.construct_expr(expr_str))
 
 					# assert False, expr
 					# todo: everything else
 		
 		return stmts
+
+	def transpile_expr(self, expr: IRNode) -> str:
+		match expr:
+			case IRUnit(src):
+				return src
+			case other:
+				assert False, other
 
 	# todo: move to a transpile stmts, which is [], applying indent
 	# todo: then move to expr, which is just IRNode
@@ -132,21 +182,26 @@ class Program:
 		
 		for node in body:
 			match node:
-				case IRUnit(src):
-					code.append(f"{indent_line}{src}")
 				case IRIf(cond, body):
 					# todo: repr for cond, which is an IRUnit
-					code.append(f"{indent_line}if {cond.src}:")
+					code.append(f"{indent_line}if {self.transpile_expr(cond)}:")
 					code += self.transpile_recurse(body, indent + 1)
-				case IRIndent(src, body):
-					code.append(f"{indent_line}{src}")
+				case IRElse(body):
+					code.append(f"{indent_line}else:")
+					code += self.transpile_recurse(body, indent + 1)
+				case IRIndent(token, expr, body):
+					code.append(f"{indent_line}{token} {self.transpile_expr(expr)}:")
 					code += self.transpile_recurse(body, indent + 1)
 				case IRAssert(exprs):
-					exprs_str = ", ".join(exprs)
+					exprs_str = ", ".join(map(self.transpile_expr, exprs))
 					code.append(f"{indent_line}assert {exprs_str}")
-				case _:
-					assert False, _
-		
+				case IRFn(_, src, body):
+					code.append(f"{indent_line}{src}")
+					code += self.transpile_recurse(body, indent + 1)
+				case IRReturn(expr):
+					code.append(f"{indent_line}return {self.transpile_expr(expr)}")
+				case other:
+					code.append(f"{indent_line}{self.transpile_expr(other)}")
 		return code
 
 	# def transform

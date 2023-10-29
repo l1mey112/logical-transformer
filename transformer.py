@@ -36,11 +36,16 @@ def main():
 	program = Program("""a = 5
 b = 7
 
+def test(a, b):
+	return a + b
+
 if a > 2 and b < 3:
 	print("Hello, world!")
 	if a > 2 and b < 3:
 		print("Hello, world!")
 	print("test")
+else:
+	print("test2")
 
 assert True, 'fart'
 
