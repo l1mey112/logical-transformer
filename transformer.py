@@ -1,42 +1,27 @@
 import sys
-from dataclasses import dataclass
 from ir import *
 
-class Transformations(Flag):
-	# logical
-	AND = auto()
-	OR = auto()
-	NOT = auto()
-	# expr
-	IN = auto()
-	# control flow
-	FOR = auto()
-	ELSE = auto()
-	ELIF = auto()
-	RETURN = auto()
-	BREAK = auto()
-	# stmts
-	ASSERT = auto()
+# --- Just. Remove. Everything.
+#
+# l-m>   Will I lose marks for removing things I am not supposed to?
+# Ankit> No
+# l-m>   So I can just ignore the keywords file and just rip everything out?
+# Ankit> I mean, technically yes, but you’re just making life harder for yourself.
 
-def get_passes(keywords_file: str) -> Transformations:
-	passes = Transformations(0)
-	
-	f = open(keywords_file)
-	keywords = f.readlines()
-	
-	for keyword in keywords:
-		passes |= Transformations[keyword.strip().upper()]
-	
-	return passes
+# python3 transformer.py <path_to_python_script.py> <keywords_text_file.txt>
+#         ^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^
+#         argv[0]        argv[1]                    argv[2]
 
 def main():
+	# yeah, we don't need this
+	# passes = get_passes(sys.argv[2])
+
 	python_src = open(sys.argv[1]).read()
-	passes = get_passes(sys.argv[2])
 
 	program = Program(python_src)
-	program.transform(passes)
-
-	print(program.transpile(), end="")
+	program.transform()
+	new_src = program.transpile()
+	print(new_src, end="")
 
 if __name__ == "__main__":
 	main()

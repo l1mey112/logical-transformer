@@ -1,6 +1,5 @@
 from typing import *
 from dataclasses import dataclass
-from enum import Flag, auto
 import keyword
 import sys
 
@@ -48,22 +47,6 @@ class IRAssert:
 
 IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRBreak | IRReturn | IRFn
 
-class Transformations(Flag):
-	# logical
-	AND = auto()
-	OR = auto()
-	NOT = auto()
-	# expr
-	IN = auto()
-	# control flow
-	FOR = auto()
-	ELSE = auto()
-	ELIF = auto()
-	RETURN = auto()
-	BREAK = auto()
-	# stmts
-	ASSERT = auto()
-
 def tokenise_first(line: str) -> str:
 	"""
 	assert tokenise_first("if(") == "if"
@@ -75,6 +58,11 @@ def tokenise_first(line: str) -> str:
 	
 	return line[:i]
 
+def iter_skip(v: Iterator[Any], amount: int):
+	while amount > 0:
+		next(v)
+		amount -= 1
+
 class Program:
 	def __init__(self, program_src):
 		self.program_src = program_src
@@ -83,6 +71,7 @@ class Program:
 		self.lines_iterator = iter(self.line_next, None)
 		self.function_decls = {}
 		#
+		self.tmp_counter = 0
 		self.program = self.construct_ir(0)
 	
 	def line_rewind(self):
@@ -187,26 +176,82 @@ class Program:
 		
 		return stmts
 	
-	def transform_recurse(self, body: List[IRNode], passes: Transformations):
-		"""transform: walk the entire IR, apply transformations"""
+	def transform_find_bounds_of_if(self, start: int, body: List[IRNode]) -> List[IRNode]:
+		i = start
+		while i < len(body):
+			match body[i]:
+				case IRIf():
+					i += 1
+				case IRElif():
+					i += 1
+				case IRElse():
+					i += 1
+				case _:
+					break
+		return body[:i]
+
+	def transform_new_temp_var(self, relation: str) -> str:
+		# relation: "while"
+		# -> _while0
+		tmp = f"_{relation}{self.tmp_counter}"
+		self.tmp_counter += 1
+		return tmp
+
+	def transform_walk_if(self, body: List[IRNode]) -> List[IRNode]:
+		# check if it's a simplistic stmt
+		if len(body) == 1:
+			# body[0] must be a IRIf
+			node = body[0]
+			transformed = self.transform_recurse(node.body)
+			node.body = transformed
+			return [node]
+
+		nbody = []
+		temp_var = self.transform_new_temp_var("if")
+
+		nbody.append(IRUnit(f"{temp_var} = True"))
+		for op in body:
+			match op:
+				case IRIf(expr, body):
+					transformed = self.transform_recurse(op.body)
+					tbody = [IRUnit(f"{temp_var} = False")] + transformed
+					nbody.append(IRIf(expr, tbody))
+				case IRElif(expr, body):
+					transformed = self.transform_recurse(op.body)
+					tcond = IRUnit(f"{temp_var} and {expr.src}")
+					tbody = [IRUnit(f"{temp_var} = False")] + transformed
+					nbody.append(IRIf(tcond, tbody))
+				case IRElse(body):
+					transformed = self.transform_recurse(op.body)
+					tcond = IRUnit(f"{temp_var}")
+					nbody.append(IRIf(tcond, transformed))
+		return nbody
+	
+	def transform_recurse(self, body: List[IRNode]) -> List[IRNode]:
+		nbody = []
 
 		# work on stmts, this will shuffle expressions
-		for index, op in enumerate(body):
+		vals = enumerate(body)
+		for index, op in vals:
 			match op:
 				case IRAssert(exprs):
-					if Transformations.ASSERT not in passes:
-						continue
 					raise_str = "raise AssertionError" if len(exprs) == 1 else f"raise AssertionError({self.transpile_expr(exprs[1])})"
-					self.program[index] = IRIf(IRUnit(f"not {self.transpile_expr(exprs[0])}"), [IRUnit(raise_str)])
-				
+					new_expr = IRIf(IRUnit(f"not {self.transpile_expr(exprs[0])}"), [IRUnit(raise_str)])
+					nbody.append(new_expr)
+				case IRIf():
+					if_stmts = self.transform_find_bounds_of_if(index, body)
+					nbody += self.transform_walk_if(if_stmts)
+					iter_skip(vals, len(if_stmts) - 1) # skip these
 				case other:
 					print(f"unhandled IR: {other}", file=sys.stderr)
-		
+					nbody.append(op)
+
 		# work on expressions, to remove keywords introduced by previous stmt transformations
+		return nbody
 	
-	def transform(self, passes: Transformations):
-		"""transform: walk the entire IR, apply transformations"""
-		self.transform_recurse(passes, self.program)
+	def transform(self):
+		nprogram = self.transform_recurse(self.program)
+		self.program = nprogram
 
 	def transpile_expr(self, expr: IRNode) -> str:
 		match expr:
@@ -224,8 +269,10 @@ class Program:
 		for node in body:
 			match node:
 				case IRIf(cond, body):
-					# todo: repr for cond, which is an IRUnit
 					code.append(f"{indent_line}if {self.transpile_expr(cond)}:")
+					code += self.transpile_recurse(body, indent + 1)
+				case IRElif(cond, body):
+					code.append(f"{indent_line}elif {self.transpile_expr(cond)}:")
 					code += self.transpile_recurse(body, indent + 1)
 				case IRElse(body):
 					code.append(f"{indent_line}else:")

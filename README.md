@@ -109,25 +109,32 @@ else:
 
 # else + elif
 
+do this all in one go, it's easier.
+
 ```py
-if cond1():
-    # cond1
-elif cond2():
-    # cond2
+if cond():
+	print('test0')
+elif cond():
+	print('test1')
+elif cond():
+	print('test2')
 else:
-    # cond3
+	print('test3')
 ```
 > original
 ```py
-_else = True
-if cond1():
-    _else = False
-    # cond1
-if not _else and cond2():
-    _else = False
-    # cond2
-if _else:
-    # cond3
+_if0 = True
+if cond():
+    _if0 = False
+    print('test0')
+if _if0 and cond():
+    _if0 = False
+    print('test1')
+if _if0 and cond():
+    _if0 = False
+    print('test2')
+if _if0:
+    print('test3')
 ```
 > transformation
 
