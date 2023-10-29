@@ -20,6 +20,11 @@ class IRUnit:
 	src: str
 
 @dataclass
+class IRUnitStmt:
+	token: str
+	expr: 'IRNode'
+
+@dataclass
 class IRFor:
 	lhs: 'IRNode'
 	rhs: 'IRNode'
@@ -56,7 +61,7 @@ class IRElse:
 class IRAssert:
 	exprs: List['IrNode']
 
-IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRFor | IRBreak | IRReturn | IRFn
+IRNode = IRUnit | IRUnitStmt | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRFor | IRBreak | IRReturn | IRFn
 
 def tokenise_first(line: str) -> str:
 	"""
@@ -80,8 +85,8 @@ class Program:
 		self.lines = program_src.split("\n")
 		self.index = 0
 		self.lines_iterator = iter(self.line_next, None)
-		self.function_decls = {}
 		#
+		self.function_decls = {}
 		self.tmp_break_stack = []
 		self.tmp_counter_prefix = {}
 		self.program = self.construct_ir(0)
@@ -97,17 +102,8 @@ class Program:
 		self.index += 1
 		return line
 	
-	# todo: deprecate? operations on IRNodes will just be string ops
 	def construct_expr(self, expr: str) -> IRNode:
-		# precedence:
-		#   1. not
-		#   2. in
-		#   3. or
-		#   4. and
-
-		# if test is function
-		#   1. call()
-
+		# possibly deprecate
 		return IRUnit(expr)
 	
 	def construct_ir(self, last_indent: int) -> List[IRNode]:
@@ -120,7 +116,7 @@ class Program:
 		for line in self.lines_iterator:
 			# fuckit: we won't get multiline strings, or malformed indentation
 
-			if line.isspace():
+			if line.isspace() or line == "":
 				stmts.append(IRUnit(""))
 				continue
 
@@ -183,10 +179,6 @@ class Program:
 					stmts.append(IRFor(self.construct_expr(expr_strs[0]), self.construct_expr(expr_strs[1]), body))
 				case 'break':
 					stmts.append(IRBreak())
-				#case 'for':
-				#	# for expr in expr:
-				#	#     ^^^^    ^^^^
-				#	expr = dedented_line[len(token):].strip().removesuffix(":")
 				case expr:
 					dedented_line_no_comments = dedented_line.split('#', 1)[0]
 					
@@ -234,7 +226,7 @@ class Program:
 		if len(body) == 1:
 			# body[0] must be a IRIf
 			node = body[0]
-			transformed = self.transform_recurse(node.body)
+			transformed = self.transform_stmts_recurse(node.body)
 			node.body = transformed
 			return [node]
 
@@ -245,16 +237,16 @@ class Program:
 		for op in body:
 			match op:
 				case IRIf(expr, body):
-					transformed = self.transform_recurse(op.body)
+					transformed = self.transform_stmts_recurse(op.body)
 					tbody = [IRUnit(f"{temp_var} = False")] + transformed
 					nbody.append(IRIf(expr, tbody))
 				case IRElif(expr, body):
-					transformed = self.transform_recurse(op.body)
+					transformed = self.transform_stmts_recurse(op.body)
 					tcond = IRUnit(f"{temp_var} and {expr.src}")
 					tbody = [IRUnit(f"{temp_var} = False")] + transformed
 					nbody.append(IRIf(tcond, tbody))
 				case IRElse(body):
-					transformed = self.transform_recurse(op.body)
+					transformed = self.transform_stmts_recurse(op.body)
 					tcond = IRUnit(f"{temp_var}")
 					nbody.append(IRIf(tcond, transformed))
 				case other:
@@ -287,7 +279,7 @@ class Program:
 			tmp = self.transform_new_temp_var("while")
 			self.tmp_break_stack.append(tmp)
 		
-		transformed = self.transform_recurse(node.body)
+		transformed = self.transform_stmts_recurse(node.body)
 
 		if contains_break:	
 			nbody.append(IRUnit(f"{tmp} = True"))
@@ -309,7 +301,7 @@ class Program:
 		nbody = []
 
 		self.tmp_break_stack.append(for_tmp)
-		transformed = self.transform_recurse(node.body)
+		transformed = self.transform_stmts_recurse(node.body)
 		self.tmp_break_stack.pop()
 
 		# TRY EXCEPT StopIteration
@@ -319,7 +311,7 @@ class Program:
 			]),
 			IRIndent('except', IRUnit('StopIteration'), [
 				IRUnit(f"{for_tmp} = False"),
-				IRUnit(f"continue"),
+				IRUnitStmt(f"continue", IRUnit('')),
 			]),
 		] + transformed
 
@@ -329,7 +321,7 @@ class Program:
 
 		return nbody
 	
-	def transform_recurse(self, body: List[IRNode]) -> List[IRNode]:
+	def transform_stmts_recurse(self, body: List[IRNode]) -> List[IRNode]:
 		nbody = []
 
 		# work on stmts, this will shuffle expressions
@@ -351,16 +343,73 @@ class Program:
 				case IRBreak():
 					top_tmp = self.tmp_break_stack[len(self.tmp_break_stack) - 1]
 					nbody.append(IRUnit(f"{top_tmp} = False"))
-					nbody.append(IRUnit("continue"))
+					nbody.append(IRUnitStmt(f"continue", IRNode('')))
+				case IRReturn(expr):
+					expr = IRUnit(self.transpile_expr(expr))
+					nbody.append(IRUnitStmt('yield', expr))
+				case IRFn(name, src, body):
+					transformed = self.transform_stmts_recurse(body)
+					nbody.append(IRFn(
+						name, src, transformed + [IRUnitStmt(f"yield", IRUnit('None'))]
+					))
+				case IRUnit():
+					nbody.append(op) # not transforming expressions yet
 				case other:
-					print(f"unhandled IR: {other}", file=sys.stderr)
-					nbody.append(op)
+					assert False, other
 
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
 	
+	def transform_expr(self, node: IRUnit):
+		# precedence:
+		#   1. not
+		#   2. in
+		#   3. or
+		#   4. and
+		# if test is function
+		#   1. call()
+		pass
+	
+	def transform_exprs_recurse(self, body: List[IRNode]):
+		for op in body:
+			match op:
+				case IRIf(cond, body):
+					self.transform_expr(cond)
+					self.transform_exprs_recurse(body)
+				case IRElif(cond, body):
+					self.transform_expr(cond)
+					self.transform_exprs_recurse(body)
+				case IRElse(body):
+					self.transform_exprs_recurse(body)
+				case IRIndent(_, expr, body):
+					self.transform_expr(expr)
+					self.transform_exprs_recurse(body)
+				case IRAssert(exprs):
+					self.transform_exprs_recurse(exprs)
+				case IRWhile(cond, body):
+					self.transform_expr(cond)
+					self.transform_exprs_recurse(body)
+				case IRFor(_, rhs, body):
+					self.transform_expr(rhs)
+					self.transform_exprs_recurse(cond)
+				case IRBreak():
+					pass
+				case IRReturn(expr):
+					self.transform_expr(expr)
+				case IRFn(_, _, body):
+					self.transform_exprs_recurse(body)
+				case IRUnitStmt(_, expr):
+					self.transform_expr(expr)
+				case IRUnit():
+					self.transform_expr(op)
+				case other:
+					assert False, other
+	
 	def transform(self):
-		nprogram = self.transform_recurse(self.program)
+		# transform all statements, may introduce forbidden keywords in expressions
+		nprogram = self.transform_stmts_recurse(self.program)
+		# transform all expressions, doesn't require context
+		self.transform_exprs_recurse(nprogram)
 		self.program = nprogram
 
 	def transpile_expr(self, expr: IRNode) -> str:
@@ -410,8 +459,12 @@ class Program:
 					code += self.transpile_recurse(body, indent + 1)
 				case IRReturn(expr):
 					code.append(f"{indent_line}return {self.transpile_expr(expr)}")
+				case IRUnitStmt(token, expr):
+					code.append(f"{indent_line}{token} {self.transpile_expr(expr)}")
+				case IRUnit(src):
+					code.append(f"{indent_line}{src}")
 				case other:
-					code.append(f"{indent_line}{self.transpile_expr(other)}")
+					assert False, other
 		return code
 
 	def transpile(self) -> str:

@@ -209,6 +209,18 @@ while _for0:
 ```
 > transformation
 
-- [ ] in
-- [ ] 
-- [ ] Combinations of the above
+# in
+
+a boolean expression. can also be followed with a `not in`
+
+- `any` is a good candidate, but it uses list comprehension
+```py
+any(item == element_to_check for item in my_list)
+```
+
+- `filter` isn't bad! it would follows the same looping logic with no list comprehension, or `for` keyword.
+```py
+needle = 2
+haystack = {2: 2, 3: 3}
+val = (len(list(filter(lambda x: x == needle, haystack))) > 0)
+```

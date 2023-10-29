@@ -22,10 +22,7 @@
 #while cond():
 #	pass
 
-for v in range(0, 15):
-	if v == 2:
-		break
-	print(v)
+def myfunc(a, b):
+	return a + b
 
-for v in cond():
-	pass
+myfunc(2, 30)
