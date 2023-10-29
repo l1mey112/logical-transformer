@@ -20,6 +20,11 @@ class IRUnit:
 	src: str
 
 @dataclass
+class IRWhile:
+	cond: 'IRNode'
+	body: List['IrNode']
+
+@dataclass
 class IRBreak:
 	pass
 
@@ -45,7 +50,7 @@ class IRElse:
 class IRAssert:
 	exprs: List['IrNode']
 
-IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRBreak | IRReturn | IRFn
+IRNode = IRUnit | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRBreak | IRReturn | IRFn
 
 def tokenise_first(line: str) -> str:
 	"""
@@ -71,6 +76,7 @@ class Program:
 		self.lines_iterator = iter(self.line_next, None)
 		self.function_decls = {}
 		#
+		self.tmp_break_stack = []
 		self.tmp_counter = 0
 		self.program = self.construct_ir(0)
 	
@@ -85,6 +91,7 @@ class Program:
 		self.index += 1
 		return line
 	
+	# todo: deprecate? operations on IRNodes will just be string ops
 	def construct_expr(self, expr: str) -> IRNode:
 		# precedence:
 		#   1. not
@@ -153,8 +160,14 @@ class Program:
 					for line in dedented_line[len(token):].split(","):
 						exprs.append(self.construct_expr(line.strip()))
 					stmts.append(IRAssert(exprs))
-				#case 'break':
-				#	stmts.append(IRBreak())
+				case 'while':
+					# while expr:
+					#       ^^^^
+					expr_str = dedented_line[len(token):].strip().removesuffix(":")
+					body = self.construct_ir(current_indent)
+					stmts.append(IRWhile(self.construct_expr(expr_str), body))
+				case 'break':
+					stmts.append(IRBreak())
 				#case 'for':
 				#	# for expr in expr:
 				#	#     ^^^^    ^^^^
@@ -188,7 +201,7 @@ class Program:
 					i += 1
 				case _:
 					break
-		return body[:i]
+		return body[start:i]
 
 	def transform_new_temp_var(self, relation: str) -> str:
 		# relation: "while"
@@ -202,6 +215,7 @@ class Program:
 		if len(body) == 1:
 			# body[0] must be a IRIf
 			node = body[0]
+			print(node)
 			transformed = self.transform_recurse(node.body)
 			node.body = transformed
 			return [node]
@@ -225,6 +239,45 @@ class Program:
 					transformed = self.transform_recurse(op.body)
 					tcond = IRUnit(f"{temp_var}")
 					nbody.append(IRIf(tcond, transformed))
+				case other:
+					assert False, other
+
+		return nbody
+	
+	def transform_while_contains_break(self, node: IRWhile) -> bool:
+		for op in node.body:
+			match op:
+				case IRWhile():
+					pass # break doesn't refer to this while
+				case IRBreak():
+					return True
+				case other:
+					if hasattr(other, 'body'):
+						if self.transform_while_contains_break(other):
+							return True
+		
+		return False
+
+	def transform_while(self, node: IRWhile) -> List[IRNode]:
+		contains_break = self.transform_while_contains_break(node)
+
+		nbody = []
+
+		if contains_break:
+			tmp = self.transform_new_temp_var("while")
+			self.tmp_break_stack.append(tmp)
+		
+		transformed = self.transform_recurse(node.body)
+
+		if contains_break:	
+			nbody.append(IRUnit(f"{tmp} = True"))
+			expr_str = f"{tmp} and {node.cond.src}"
+		else:
+			self.tmp_break_stack.pop()
+			expr_str = node.cond.src
+
+		nbody.append(IRWhile(IRUnit(expr_str), transformed))
+		
 		return nbody
 	
 	def transform_recurse(self, body: List[IRNode]) -> List[IRNode]:
@@ -238,10 +291,16 @@ class Program:
 					raise_str = "raise AssertionError" if len(exprs) == 1 else f"raise AssertionError({self.transpile_expr(exprs[1])})"
 					new_expr = IRIf(IRUnit(f"not {self.transpile_expr(exprs[0])}"), [IRUnit(raise_str)])
 					nbody.append(new_expr)
+				case IRWhile():
+					nbody += self.transform_while(op)
 				case IRIf():
 					if_stmts = self.transform_find_bounds_of_if(index, body)
 					nbody += self.transform_walk_if(if_stmts)
 					iter_skip(vals, len(if_stmts) - 1) # skip these
+				case IRBreak():
+					top_tmp = self.tmp_break_stack[len(self.tmp_break_stack) - 1]
+					nbody.append(IRUnit(f"{top_tmp} = False"))
+					nbody.append(IRUnit("continue"))
 				case other:
 					print(f"unhandled IR: {other}", file=sys.stderr)
 					nbody.append(op)
@@ -277,6 +336,11 @@ class Program:
 				case IRElse(body):
 					code.append(f"{indent_line}else:")
 					code += self.transpile_recurse(body, indent + 1)
+				case IRWhile(cond, body):
+					code.append(f"{indent_line}while {self.transpile_expr(cond)}:")
+					code += self.transpile_recurse(body, indent + 1)
+				case IRBreak():
+					code.append(f"{indent_line}break")
 				case IRIndent(token, expr, body):
 					code.append(f"{indent_line}{token} {self.transpile_expr(expr)}:")
 					code += self.transpile_recurse(body, indent + 1)

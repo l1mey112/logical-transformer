@@ -17,7 +17,7 @@ def main():
 	# passes = get_passes(sys.argv[2])
 
 	python_src = open(sys.argv[1]).read()
-
+ 
 	program = Program(python_src)
 	program.transform()
 	new_src = program.transpile()
