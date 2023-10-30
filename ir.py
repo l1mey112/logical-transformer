@@ -180,10 +180,10 @@ class Program:
 				case 'break':
 					stmts.append(IRBreak())
 				case expr:
-					dedented_line_no_comments = dedented_line.split('#', 1)[0]
+					dedented_line_no_comments = dedented_line.split('#', 1)[0].strip()
 					
-					if ":" in dedented_line_no_comments:
-						assert keyword.iskeyword(token) # it should be.
+					if dedented_line_no_comments[len(dedented_line_no_comments) - 1:] == ":":
+						assert keyword.iskeyword(token), token # it should be.
 						expr_str = dedented_line[len(token):].strip().removesuffix(":")
 						body = self.construct_ir(current_indent)
 						stmts.append(IRIndent(token, self.construct_expr(expr_str), body))
