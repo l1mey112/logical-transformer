@@ -321,11 +321,11 @@ class Program:
 
 		return nbody
 	
-	def transform_stmts_recurse(self, body: List[IRNode]) -> List[IRNode]:
+	def transform_stmts_recurse(self, abody: List[IRNode]) -> List[IRNode]:
 		nbody = []
 
 		# work on stmts, this will shuffle expressions
-		vals = enumerate(body)
+		vals = enumerate(abody)
 		for index, op in vals:
 			match op:
 				case IRAssert(exprs):
@@ -337,7 +337,7 @@ class Program:
 				case IRFor():
 					nbody += self.transform_for(op)
 				case IRIf():
-					if_stmts = self.transform_find_bounds_of_if(index, body)
+					if_stmts = self.transform_find_bounds_of_if(index, abody)
 					nbody += self.transform_walk_if(if_stmts)
 					iter_skip(vals, len(if_stmts) - 1) # skip these
 				case IRBreak():
@@ -370,8 +370,8 @@ class Program:
 		#   1. call()
 		pass
 	
-	def transform_exprs_recurse(self, body: List[IRNode]):
-		for op in body:
+	def transform_exprs_recurse(self, abody: List[IRNode]):
+		for op in abody:
 			match op:
 				case IRIf(cond, body):
 					self.transform_expr(cond)
