@@ -361,23 +361,65 @@ class Program:
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
 
+	# todo: change name, even 
 	def transform_expr_nested_calls_str(self, src: str, pattern: str) -> str:
 		# call(another(), expr)
 		#      ^^^^^^^^^
 		# ^^^^^^^^^^^^^^^^^^^^^
-		#
 		# if call is "ours", replace with `next(expr())`
-		# use recursive regex
+		#
+		# hello()
+		# |    \ start searching for bounds of ()
+		# \ start of function name
+		#
+		# hello( hello() + hello() ) + hello()
+		# ^^^^^^ ^^^^^^    ^^^^^^      ^^^^^^
+		#      \-[0]--\-[1]-----\-[2]-------\-[3] | [re.finditer]
+		#
+		# using these bounds, recurse over each pair of equally leveled braces
 
-		def replace_func(rmatch):
-			func_name, inner = rmatch.groups()
-			print(f"INNER({func_name}): {inner}")
-			inner = self.transform_expr_nested_calls_str(inner, pattern)
-			return f"{func_name}|({inner})"
+		def find_inner_parens(src: str, start: int) -> int:
+			# assume all parens are balanced, don't bother checking `len()`
+			# this fails on string arguments, goddammit
+			# -- want a transformer that is actually useful?
+			# -- it must be a literal compiler.
+			# -- i am trying real hard not to write a full expression parser here.
+			
+			paren_lim = 1
+			i = start + 1
+			while paren_lim > 0:
+				if src[i] == "(":
+					paren_lim += 1
+				elif src[i] == ")":
+					paren_lim -= 1
+				i += 1
+			
+			return i
 
-		src = re.sub(pattern, replace_func, src)
-		print(f"entire: {src}")
-		return src
+		nstr = ''
+
+		# march along the string applying transformations
+		start = 0
+		for rmatch in re.finditer(pattern, src):
+			start_all = rmatch.start(1)
+			func_str = src[start_all:rmatch.end(1)]
+			start_inner = rmatch.start(2)
+			end_inner = find_inner_parens(src, start_inner)
+			inner = src[start_inner:end_inner]
+			# [start_inner:end_inner] == "(...)"
+			#                             ^^^^^
+			
+			#    ....func()
+			# += ^^^^
+			nstr += src[start:start_all]
+			start = end_inner
+
+			nstr += f"next({func_str}{inner})"
+			
+			pass
+		nstr += src[start:] # append the rest
+
+		return nstr
 
 	def transform_expr_str(self, src: str) -> str:
 		# precedence:
@@ -402,11 +444,12 @@ class Program:
 			# no need to convert any functions
 			return src
 
-		pattern = fr'\b({replace_list})\((.*?)\)'
-		
+		pattern = fr'\b({replace_list})\s*(\()'
+
 		src = self.transform_expr_nested_calls_str(src, pattern)
 		return src
 
+	# this only works with binops, not function calls that group expressions!
 	def transform_expr(self, node: IRUnit):
 		src = node.src
 		nsrc = ''
