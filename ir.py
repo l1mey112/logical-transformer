@@ -65,9 +65,9 @@ class IRAssert:
 IRNode = IRUnit | IRUnitStmt | IRIf | IRElif | IRElse | IRIndent | IRAssert | IRWhile | IRFor | IRBreak | IRReturn | IRFn
 
 def tokenise_first(line: str) -> str:
-	"""
-	assert tokenise_first("if(") == "if"
-	"""
+	# will strip the end, taking the start
+	#
+	# assert tokenise_first("if(") == "if"	
 
 	i = 0
 	while i < len(line) and line[i].isidentifier():
@@ -79,6 +79,21 @@ def iter_skip(v: Iterator[Any], amount: int):
 	while amount > 0:
 		next(v)
 		amount -= 1
+
+def find_inner_parens(src: str, start: int) -> int:
+	# assume all parens are balanced, don't bother checking `len()`
+	# this fails on string arguments, goddammit
+	
+	paren_lim = 1
+	i = start + 1
+	while paren_lim > 0:
+		if src[i] == "(":
+			paren_lim += 1
+		elif src[i] == ")":
+			paren_lim -= 1
+		i += 1
+	
+	return i
 
 class Program:
 	def __init__(self, program_src):
@@ -155,10 +170,13 @@ class Program:
 					expr = self.construct_expr(dedented_line[len(token):].strip())
 					stmts.append(IRReturn(expr))
 				case 'assert':
-					# assert expr, expr
-					#        ^^^^  ^^^^
-					#
+					# assert expr0, expr1
+					#        ^^^^^  ^^^^^
 					# assert does not allow comma expressions in expr0
+					#
+					# this will fail on assertations with strings containing commas
+					# -- i like to pick and choose.
+					
 					exprs = []
 					for line in dedented_line[len(token):].split(","):
 						exprs.append(self.construct_expr(line.strip()))
@@ -172,7 +190,6 @@ class Program:
 				case 'for':
 					# for lhs in rhs:
 					#     ^^^    ^^^
-
 					# a well formed `lhs` will never contain a keyword like `in`
 					#     -- use              : `.split("in", 1)`
 					#     -- will not fail on : `v in "hello in this"`
@@ -368,6 +385,8 @@ class Program:
 
 	# todo: change name, even 
 	def transform_expr_nested_calls_str(self, src: str, pattern: str) -> str:
+		# a recursive descent parser using regex is never a good idea
+		#
 		# call(another(), expr)
 		#      ^^^^^^^^^
 		# ^^^^^^^^^^^^^^^^^^^^^
@@ -382,24 +401,6 @@ class Program:
 		#      \-[0]--\-[1]-----\-[2]-------\-[3] | [re.finditer]
 		#
 		# using these bounds, recurse over each pair of equally leveled braces
-
-		def find_inner_parens(src: str, start: int) -> int:
-			# assume all parens are balanced, don't bother checking `len()`
-			# this fails on string arguments, goddammit
-			# -- want a transformer that is actually useful?
-			# -- it must be a literal compiler.
-			# -- i am trying real hard not to write a full expression parser here.
-			
-			paren_lim = 1
-			i = start + 1
-			while paren_lim > 0:
-				if src[i] == "(":
-					paren_lim += 1
-				elif src[i] == ")":
-					paren_lim -= 1
-				i += 1
-			
-			return i
 
 		nstr = ''
 
