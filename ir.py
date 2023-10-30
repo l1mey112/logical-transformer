@@ -170,9 +170,14 @@ class Program:
 					body = self.construct_ir(current_indent)
 					stmts.append(IRWhile(self.construct_expr(expr_str), body))
 				case 'for':
-					# for expr in expr:
-					#     ^^^^    ^^^^
-					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split(" in ")
+					# for lhs in rhs:
+					#     ^^^    ^^^
+
+					# a well formed `lhs` will never contain a keyword like `in`
+					#     -- use              : `.split("in", 1)`
+					#     -- will not fail on : `v in "hello in this"`
+
+					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split("in", 1)
 					assert len(expr_strs) == 2
 					expr_strs[0] = expr_strs[0].strip()
 					expr_strs[1] = expr_strs[1].strip()
