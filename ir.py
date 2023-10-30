@@ -2,6 +2,7 @@ from typing import *
 from dataclasses import dataclass
 import keyword
 import sys
+import re
 
 @dataclass
 class IRIndent:
@@ -116,7 +117,7 @@ class Program:
 		for line in self.lines_iterator:
 			# fuckit: we won't get multiline strings, or malformed indentation
 
-			if line.isspace() or line == "":
+			if line.isspace():
 				stmts.append(IRUnit(""))
 				continue
 
@@ -171,7 +172,7 @@ class Program:
 				case 'for':
 					# for expr in expr:
 					#     ^^^^    ^^^^
-					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split("in")
+					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split(" in ")
 					assert len(expr_strs) == 2
 					expr_strs[0] = expr_strs[0].strip()
 					expr_strs[1] = expr_strs[1].strip()
@@ -343,7 +344,7 @@ class Program:
 				case IRBreak():
 					top_tmp = self.tmp_break_stack[len(self.tmp_break_stack) - 1]
 					nbody.append(IRUnit(f"{top_tmp} = False"))
-					nbody.append(IRUnitStmt(f"continue", IRNode('')))
+					nbody.append(IRUnitStmt(f"continue", IRUnit('')))
 				case IRReturn(expr):
 					expr = IRUnit(self.transpile_expr(expr))
 					nbody.append(IRUnitStmt('yield', expr))
@@ -359,16 +360,87 @@ class Program:
 
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
-	
-	def transform_expr(self, node: IRUnit):
+
+	def transform_expr_nested_calls_str(self, src: str, pattern: str) -> str:
+		# call(another(), expr)
+		#      ^^^^^^^^^
+		# ^^^^^^^^^^^^^^^^^^^^^
+		#
+		# if call is "ours", replace with `next(expr())`
+		# use recursive regex
+
+		def replace_func(rmatch):
+			func_name, inner = rmatch.groups()
+			print(f"INNER({func_name}): {inner}")
+			inner = self.transform_expr_nested_calls_str(inner, pattern)
+			return f"{func_name}|({inner})"
+
+		src = re.sub(pattern, replace_func, src)
+		print(f"entire: {src}")
+		return src
+
+	def transform_expr_str(self, src: str) -> str:
 		# precedence:
 		#   1. not
 		#   2. in
 		#   3. or
 		#   4. and
-		# if test is function
-		#   1. call()
-		pass
+		#   5. call()
+
+		rep = {
+			'and': '&',
+			'or': '|',
+			'not': 'False ==',
+		}
+		src = re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], src)
+
+		print(f"------- {src}")
+		
+		# replace list: "func1|func2|func3" -> insert inside regex
+		replace_list = '|'.join(self.function_decls.keys())
+		if replace_list == '':
+			# no need to convert any functions
+			return src
+
+		pattern = fr'\b({replace_list})\((.*?)\)'
+		
+		src = self.transform_expr_nested_calls_str(src, pattern)
+		return src
+
+	def transform_expr(self, node: IRUnit):
+		src = node.src
+		nsrc = ''
+
+		# may contain comments, may contain strings. parse them out
+
+		start = 0
+		inside_string = False
+		vals = enumerate(src)
+		for index, ch in vals:
+			nindex = index + 1
+			if ch == "'" or ch == '"' or nindex >= len(src):
+				inside_string = not inside_string
+
+				if inside_string:
+					# string starting, handle text before
+					# entire line ended, handle text before
+					nsrc += self.transform_expr_str(src[start:nindex])
+				else:
+					# string over
+					nsrc += src[start:nindex]
+
+				start = nindex
+				continue
+			elif ch == "#":
+				# handle comments
+				nsrc += src[start:]
+				break
+			if inside_string:
+				if ch == "\\":
+					next(vals) # skip \n
+				continue
+		
+		node.src = nsrc
 	
 	def transform_exprs_recurse(self, abody: List[IRNode]):
 		for op in abody:
