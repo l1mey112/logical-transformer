@@ -80,13 +80,44 @@ def iter_skip(v: Iterator[Any], amount: int):
 		next(v)
 		amount -= 1
 
+def skip_to_identifers(src: str, start: int) -> int:
+	# traverse forward, skipping all strings and comments
+	#
+	# a = "'h\"ello' + 20"
+	# assert a[skip_to_identifers(a, 0):] == " + 20"
+
+	i = start
+	strch = None
+
+	while i < len(src):
+		ch = src[i]
+		
+		if ch.isspace():
+			pass	
+		elif strch is None:
+			if ch == "'" or ch == '"':
+				strch = ch
+			elif ch == "#":
+				return len(src)
+			else:
+				return i
+		else:
+			if ch == "\\":
+				i += 1
+			elif ch == strch:
+				strch = None
+		
+		i += 1
+
+	return i
+
 def find_inner_parens(src: str, start: int) -> int:
 	# assume all parens are balanced, don't bother checking `len()`
-	# this fails on string arguments, goddammit
 	
 	paren_lim = 1
 	i = start + 1
 	while paren_lim > 0:
+		i = skip_to_identifers(src, i) # skip past strings
 		if src[i] == "(":
 			paren_lim += 1
 		elif src[i] == ")":
@@ -431,6 +462,16 @@ class Program:
 
 		return nstr
 
+	#
+	# 1. | not hello("test") and cond() or value not in obj
+	# 2. | False == hello("test") & cond() | value not in obj
+	# 3. | False == hello("test") & cond() | False == _inhelper(value,  obj)
+	# 4. | False == next(hello("test")) & next(cond()) | False == _inhelper(value,  obj)
+	#
+	# `not in` and `in` transformations could introduce function calls.
+	# issue, we need to isolate expressions properly
+	#
+
 	def transform_expr_str(self, src: str) -> str:
 		# precedence:
 		#   1. not
@@ -456,47 +497,7 @@ class Program:
 
 		src = self.transform_expr_nested_calls_str(src, pattern)
 		return src
-
-	def transform_skip_over_undesirables_iter(self, src: str) -> Generator[Tuple[bool, str]]:
-		# may contain comments, may contain strings. parse them out
-
-		start = 0
-		strch = None
-		inside_string = False
-		while start < len(src):
-			ch = src[start]
-			
-			if ch.isspace():
-				start += 1
-				continue
-
-			if strch is None and (ch == "'" or ch == '"'):
-				strch = ch
-			
-			nindex = index + 1
-			if ch == strch or nindex >= len(src):
-				inside_string = not inside_string
-
-				if inside_string:
-					# string starting, handle text before
-					# entire line ended, handle text before
-					yield (True, src[start:nindex])
-				else:
-					# string over
-					strch = None
-					yield (False, src[start:nindex])
-
-				start = nindex
-				continue
-			elif ch == "#":
-				# handle comments
-				yield (False, src[start:])
-				break
-			if inside_string:
-				if ch == "\\":
-					next(vals) # skip \n
-				continue
-
+	
 	def transform_expr_str_recurse(self, src: str) -> str:
 		# precedence:
 		#   1. not
@@ -505,12 +506,17 @@ class Program:
 
 		nstr = ''
 		start = 0
-		while start < len(src):
+		
+		while True:
+			start = skip_to_identifers(src, start)
+			if start >= len(src):
+				break
+
+			nstr += src[:start]
 			
+			pass
 
 		return nstr
-		
-		pass
 
 	# this only works with binops, not function calls that group expressions!
 	def transform_expr(self, node: IRUnit):
@@ -518,6 +524,9 @@ class Program:
 		nsrc = ''
 
 		# may contain comments, may contain strings. parse them out
+
+		# TODO: remove comments, returning tuple (str, comment)
+		#       to make parsing in passes easier.
 
 		start = 0
 		inside_string = False
