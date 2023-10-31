@@ -132,7 +132,7 @@ class Program:
 		for line in self.lines_iterator:
 			# fuckit: we won't get multiline strings, or malformed indentation
 
-			if line.isspace():
+			if line.isspace() or line == "":
 				stmts.append(IRUnit(""))
 				continue
 
@@ -220,11 +220,9 @@ class Program:
 		return stmts
 	
 	def transform_find_bounds_of_if(self, start: int, body: List[IRNode]) -> List[IRNode]:
-		i = start
+		i = start + 1
 		while i < len(body):
 			match body[i]:
-				case IRIf():
-					i += 1
 				case IRElif():
 					i += 1
 				case IRElse():
@@ -383,8 +381,7 @@ class Program:
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
 
-	# todo: change name, even 
-	def transform_expr_nested_calls_str(self, src: str, pattern: str) -> str:
+	def transform_expr_nested_calls_str(self, src: str, pattern: re.Pattern) -> str:
 		# a recursive descent parser using regex is never a good idea
 		#
 		# call(another(), expr)
@@ -396,34 +393,41 @@ class Program:
 		# |    \ start searching for bounds of ()
 		# \ start of function name
 		#
-		# hello( hello() + hello() ) + hello()
-		# ^^^^^^ ^^^^^^    ^^^^^^      ^^^^^^
-		#      \-[0]--\-[1]-----\-[2]-------\-[3] | [re.finditer]
+		#                     hello ( hello() + hello() )
+		# 1.          find -> ^^^^^ /^^^^^^^^^^^^^^^^^^^^
+		# 2. locate bounds -> -----/
+		# 3. recurse       -\
 		#
-		# using these bounds, recurse over each pair of equally leveled braces
-
+		#                     hello() + hello()
+		# 1.          find -> ^^^^^/^
+		# 2. locate bounds -> ----/
+		# 3. recurse       -\
+		#                   empty inner, stop.
+		#
+		# ---- after recursion onto inner bounds, iterate to next.
+		#      march along the string applying transformations.
 		nstr = ''
-
-		# march along the string applying transformations
 		start = 0
-		for rmatch in re.finditer(pattern, src):
+		while start < len(src):
+			print(f"searching: {src[start:]}")
+			rmatch = pattern.search(src, start)
+			if not rmatch:
+				nstr += src[start:]
+				break
+
 			start_all = rmatch.start(1)
 			func_str = src[start_all:rmatch.end(1)]
 			start_inner = rmatch.start(2)
 			end_inner = find_inner_parens(src, start_inner)
-			inner = src[start_inner:end_inner]
-			# [start_inner:end_inner] == "(...)"
-			#                             ^^^^^
-			
-			#    ....func()
-			# += ^^^^
-			nstr += src[start:start_all]
-			start = end_inner
+			inner = src[start_inner + 1:end_inner - 1]
+			# [start_inner:end_inner] == "..."
+			#                             ^^^
+			# recurse downwards
+			tinner = self.transform_expr_nested_calls_str(inner, pattern)
 
-			nstr += f"next({func_str}{inner})"
-			
-			pass
-		nstr += src[start:] # append the rest
+			nstr += src[start:start_all] # add all before
+			nstr += f"next({func_str}({tinner}))"
+			start = end_inner
 
 		return nstr
 
@@ -450,7 +454,7 @@ class Program:
 			# no need to convert any functions
 			return src
 
-		pattern = fr'\b({replace_list})\s*(\()'
+		pattern = re.compile(fr'\b({replace_list})\s*(\()')
 
 		src = self.transform_expr_nested_calls_str(src, pattern)
 		return src
