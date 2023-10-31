@@ -213,14 +213,20 @@ while _for0:
 
 a boolean expression. can also be followed with a `not in`
 
-- `any` is a good candidate, but it uses list comprehension
 ```py
-any(item == element_to_check for item in my_list)
+def key_in(needle, haystack):
+    for v in haystack:
+        if v == needle:
+            return True
+    return False
 ```
 
-- `filter` isn't bad! it would follows the same looping logic with no list comprehension, or `for` keyword.
+the `in` expression is functionally equivalent to the code above. no really, unless you're overloading `__contains__` that code is basically it. `filter` isn't bad! it would follows the same looping logic with no list comprehension, or `for` keyword. wrap the whole thing in another lambda, because we can't use `reuturn`, and also to avoid invoking side effects multiple times inside the original labmda.
+
 ```py
+_inhelper = lambda needle, haystack : any(filter(lambda _x: _x == needle, haystack))
+
 needle = 2
 haystack = {2: 2, 3: 3}
-val = (len(list(filter(lambda x: x == needle, haystack))) > 0)
+val = _inhelper(needle, haystack)
 ```

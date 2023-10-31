@@ -434,10 +434,8 @@ class Program:
 	def transform_expr_str(self, src: str) -> str:
 		# precedence:
 		#   1. not
-		#   2. in
-		#   3. or
-		#   4. and
-		#   5. call()
+		#   2. in, not in, or, and
+		#   3. call()
 
 		rep = {
 			'and': '&',
@@ -458,6 +456,61 @@ class Program:
 
 		src = self.transform_expr_nested_calls_str(src, pattern)
 		return src
+
+	def transform_skip_over_undesirables_iter(self, src: str) -> Generator[Tuple[bool, str]]:
+		# may contain comments, may contain strings. parse them out
+
+		start = 0
+		strch = None
+		inside_string = False
+		while start < len(src):
+			ch = src[start]
+			
+			if ch.isspace():
+				start += 1
+				continue
+
+			if strch is None and (ch == "'" or ch == '"'):
+				strch = ch
+			
+			nindex = index + 1
+			if ch == strch or nindex >= len(src):
+				inside_string = not inside_string
+
+				if inside_string:
+					# string starting, handle text before
+					# entire line ended, handle text before
+					yield (True, src[start:nindex])
+				else:
+					# string over
+					strch = None
+					yield (False, src[start:nindex])
+
+				start = nindex
+				continue
+			elif ch == "#":
+				# handle comments
+				yield (False, src[start:])
+				break
+			if inside_string:
+				if ch == "\\":
+					next(vals) # skip \n
+				continue
+
+	def transform_expr_str_recurse(self, src: str) -> str:
+		# precedence:
+		#   1. not
+		#   2. in, not in, or, and
+		#   3. call()
+
+		nstr = ''
+		start = 0
+		while start < len(src):
+			
+
+		return nstr
+		
+		pass
 
 	# this only works with binops, not function calls that group expressions!
 	def transform_expr(self, node: IRUnit):
