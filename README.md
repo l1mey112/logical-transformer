@@ -60,6 +60,13 @@ style points:
 
 this will coerce away from `bool`, but that's mostly fine, the condition expr in an `if` will coerce back to `bool`.
 
+yeah, precedence issues. let's just hope that they don't give us something like this.
+
+```py
+not x == y      # not (x == y)
+False == x == y # (False == x) == y
+```
+
 # else
 
 ```py
@@ -230,3 +237,21 @@ needle = 2
 haystack = {2: 2, 3: 3}
 val = _inhelper(needle, haystack)
 ```
+
+finding the expressions between an `in` and `not in` is also hard, it requires searching for the middle and isolating the expressions inbetween.
+
+```py
+>>> print(ast.dump(ast.parse('x in [x] and x'), indent=4))
+#        and
+#       /   \
+#  x in [x]  x
+```
+
+```py
+>>> print(ast.dump(ast.parse('x in [x] + 2'), indent=4))
+#        in
+#       /   \
+#      x  [x] + 2
+```
+
+all the logical expressions have a higher bind power than arithmetic. all we have to do is just find the center, march outwards till we hit an `and` or `or`, and we've isolated the expression.

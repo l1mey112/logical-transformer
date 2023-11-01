@@ -98,9 +98,10 @@ def skip_to_identifers(src: str, start: int) -> int:
 			if ch == "'" or ch == '"':
 				strch = ch
 			elif ch == "#":
-				return len(src)
+				i = len(src)
+				break
 			else:
-				return i
+				break
 		else:
 			if ch == "\\":
 				i += 1
@@ -111,9 +112,47 @@ def skip_to_identifers(src: str, start: int) -> int:
 
 	return i
 
+def iter_to_identifers(src: str):
+	# return iterator
+
+	start = 0
+	i = 0
+	strch = None
+
+	while True:
+		if i >= len(src):
+			yield (True, src[start:]) # valid searchable text
+			return
+		
+		ch = src[i]
+		
+		if ch.isspace():
+			pass	
+		elif strch is None:
+			if ch == "'" or ch == '"':
+				strch = ch
+				yield (True, src[start:i]) # valid searchable text
+				start = i
+			elif ch == "#":
+				idstr = src[start:i]
+				if idstr != '':
+					yield (True, idstr) # valid searchable text
+				yield (False, src[i:]) # invalid searchable text
+				return
+		else:
+			if ch == "\\":
+				i += 1
+			elif ch == strch:
+				strch = None
+				yield (False, src[start:i + 1]) # invalid searchable text
+				start = i + 1		
+		i += 1
+
 def find_inner_parens(src: str, start: int) -> int:
 	# assume all parens are balanced, don't bother checking `len()`
-	
+
+	print(src[start:])
+
 	paren_lim = 1
 	i = start + 1
 	while paren_lim > 0:
@@ -164,7 +203,6 @@ class Program:
 			# fuckit: we won't get multiline strings, or malformed indentation
 
 			if line.isspace() or line == "":
-				stmts.append(IRUnit(""))
 				continue
 
 			dedented_line = line.lstrip()
@@ -440,7 +478,6 @@ class Program:
 		nstr = ''
 		start = 0
 		while start < len(src):
-			print(f"searching: {src[start:]}")
 			rmatch = pattern.search(src, start)
 			if not rmatch:
 				nstr += src[start:]
@@ -462,6 +499,30 @@ class Program:
 
 		return nstr
 
+#	def transform_expr_str(self, src: str) -> str:
+#		# precedence:
+#		#   1. not
+#		#   2. in, not in, or, and
+#		#   3. call()
+#
+#		rep = {
+#			'and': '&',
+#			'or': '|',
+#			'not': 'False ==',
+#		}
+#		src = re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], src)
+#
+#		# replace list: "func1|func2|func3" -> insert inside regex
+#		replace_list = '|'.join(self.function_decls.keys())
+#		if replace_list == '':
+#			# no need to convert any functions
+#			return src
+#
+#		pattern = re.compile(fr'\b({replace_list})\s*(\()')
+#
+#		src = self.transform_expr_nested_calls_str(src, pattern)
+#		return src
+
 	#
 	# 1. | not hello("test") and cond() or value not in obj
 	# 2. | False == hello("test") & cond() | value not in obj
@@ -471,92 +532,35 @@ class Program:
 	# `not in` and `in` transformations could introduce function calls.
 	# issue, we need to isolate expressions properly
 	#
-
-	def transform_expr_str(self, src: str) -> str:
-		# precedence:
-		#   1. not
-		#   2. in, not in, or, and
-		#   3. call()
+	def transform_expr(self, node: IRUnit):
+		nsrc = ''
+		
+		# ---- remove all `in` + `not in`
+		# ---- remove all `not` + `and` + `or`		
 
 		rep = {
 			'and': '&',
 			'or': '|',
 			'not': 'False ==',
 		}
-		src = re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], src)
 
-		print(f"------- {src}")
+		for valid, v in iter_to_identifers(node.src):
+			if valid:
+				nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
+			else:
+				nsrc += v
 		
+		# ---- replace all `funcall()` with `next(funcall())`
+
 		# replace list: "func1|func2|func3" -> insert inside regex
 		replace_list = '|'.join(self.function_decls.keys())
-		if replace_list == '':
-			# no need to convert any functions
-			return src
+		if replace_list != '':
+			# need to convert functions
+			pattern = re.compile(fr'\b({replace_list})\s*(\()')
+			nsrc = self.transform_expr_nested_calls_str(nsrc, pattern)
 
-		pattern = re.compile(fr'\b({replace_list})\s*(\()')
-
-		src = self.transform_expr_nested_calls_str(src, pattern)
-		return src
-	
-	def transform_expr_str_recurse(self, src: str) -> str:
-		# precedence:
-		#   1. not
-		#   2. in, not in, or, and
-		#   3. call()
-
-		nstr = ''
-		start = 0
-		
-		while True:
-			start = skip_to_identifers(src, start)
-			if start >= len(src):
-				break
-
-			nstr += src[:start]
-			
-			pass
-
-		return nstr
-
-	# this only works with binops, not function calls that group expressions!
-	def transform_expr(self, node: IRUnit):
-		src = node.src
-		nsrc = ''
-
-		# may contain comments, may contain strings. parse them out
-
-		# TODO: remove comments, returning tuple (str, comment)
-		#       to make parsing in passes easier.
-
-		start = 0
-		inside_string = False
-		vals = enumerate(src)
-		for index, ch in vals:
-			nindex = index + 1
-			if ch == "'" or ch == '"' or nindex >= len(src):
-				inside_string = not inside_string
-
-				if inside_string:
-					# string starting, handle text before
-					# entire line ended, handle text before
-					nsrc += self.transform_expr_str(src[start:nindex])
-				else:
-					# string over
-					nsrc += src[start:nindex]
-
-				start = nindex
-				continue
-			elif ch == "#":
-				# handle comments
-				nsrc += src[start:]
-				break
-			if inside_string:
-				if ch == "\\":
-					next(vals) # skip \n
-				continue
-		
 		node.src = nsrc
-	
+
 	def transform_exprs_recurse(self, abody: List[IRNode]):
 		for op in abody:
 			match op:
