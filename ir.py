@@ -113,7 +113,7 @@ def skip_to_identifers(src: str, start: int) -> int:
 	return i
 
 def iter_to_identifers(src: str):
-	# return iterator
+	# return iterator, yielding (bool, int, int)
 
 	start = 0
 	i = 0
@@ -121,7 +121,7 @@ def iter_to_identifers(src: str):
 
 	while True:
 		if i >= len(src):
-			yield (True, src[start:]) # valid searchable text
+			yield (True, start, len(src)) # valid searchable text
 			return
 		
 		ch = src[i]
@@ -131,27 +131,38 @@ def iter_to_identifers(src: str):
 		elif strch is None:
 			if ch == "'" or ch == '"':
 				strch = ch
-				yield (True, src[start:i]) # valid searchable text
+				yield (True, start, i) # valid searchable text
 				start = i
 			elif ch == "#":
-				idstr = src[start:i]
-				if idstr != '':
-					yield (True, idstr) # valid searchable text
-				yield (False, src[i:]) # invalid searchable text
+				if src[start:i] != '':
+					yield (True, start, i) # valid searchable text
+				yield (False, i, len(src)) # invalid searchable text
 				return
 		else:
 			if ch == "\\":
 				i += 1
 			elif ch == strch:
 				strch = None
-				yield (False, src[start:i + 1]) # invalid searchable text
+				yield (False, start, i + 1) # invalid searchable text
 				start = i + 1		
 		i += 1
 
+def isolate_exprs_in(src: str, lhs: int, rhs: int) -> (int, int):
+	# walk forward or backwards (depending on lhs or rhs),
+	# until hitting an operator with a lower precedence than
+	# `in` and `not in`. prefix or infix doesn't matter,
+	# logic all lines up here.
+	#
+	# lower prec: `not` + `and` + `or`
+
+	# expr not in expr
+	#      ^    ^
+	#    lhs    rhs
+
+	pass
+
 def find_inner_parens(src: str, start: int) -> int:
 	# assume all parens are balanced, don't bother checking `len()`
-
-	print(src[start:])
 
 	paren_lim = 1
 	i = start + 1
@@ -536,7 +547,41 @@ class Program:
 		nsrc = ''
 		
 		# ---- remove all `in` + `not in`
-		# ---- remove all `not` + `and` + `or`		
+
+		# find all `and` + `or` + `not`
+		# find all `not in` + `in`
+		# create LUT with these lower precedence operators
+
+		lowprec = []
+		in_notin = []
+
+		in_notin_re = re.compile(r'\b(not in|in)\b')
+		lowprec_re = re.compile(r'\b(and|or|not)\b')
+
+		for valid, start, end in iter_to_identifers(node.src):
+			if not valid:
+				continue
+			
+			for f in lowprec_re.finditer(node.src, start, end):
+				lowprec.append((f.start(0), f.end(0)))
+			for f in in_notin_re.finditer(node.src, start, end):
+				in_notin.append((f.start(0), f.end(0)))
+
+		# "not in" will be parsed as "not" and "not in" in
+		# each bucket respectively, remove them.
+		for index, vals in enumerate(lowprec):
+			lb, ub = vals
+			for nlb, _ in in_notin:
+				if lb == nlb:
+					lowprec.pop(index)
+		
+		print(lowprec)
+		print(in_notin)
+
+		# using this LUT, then locate the `in`
+		# then figure out the bounds of all expressions on either side of the `in`
+
+		# ---- remove all `not` + `and` + `or`
 
 		rep = {
 			'and': '&',
@@ -544,7 +589,8 @@ class Program:
 			'not': 'False ==',
 		}
 
-		for valid, v in iter_to_identifers(node.src):
+		for valid, start, end in iter_to_identifers(node.src):
+			v = node.src[start:end]
 			if valid:
 				nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
 			else:
