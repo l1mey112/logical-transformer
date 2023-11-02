@@ -552,31 +552,52 @@ class Program:
 		# find all `not in` + `in`
 		# create LUT with these lower precedence operators
 
+		src = node.src
 		lowprec = []
 		in_notin = []
 
 		in_notin_re = re.compile(r'\b(not in|in)\b')
 		lowprec_re = re.compile(r'\b(and|or|not)\b')
 
-		for valid, start, end in iter_to_identifers(node.src):
+		for valid, start, end in iter_to_identifers(src):
 			if not valid:
 				continue
 			
-			for f in lowprec_re.finditer(node.src, start, end):
+			for f in lowprec_re.finditer(src, start, end):
 				lowprec.append((f.start(0), f.end(0)))
-			for f in in_notin_re.finditer(node.src, start, end):
+			for f in in_notin_re.finditer(src, start, end):
 				in_notin.append((f.start(0), f.end(0)))
 
 		# "not in" will be parsed as "not" and "not in" in
-		# each bucket respectively, remove them.
+		# each bucket respectively, remove them from the operators.
 		for index, vals in enumerate(lowprec):
 			lb, ub = vals
 			for nlb, _ in in_notin:
 				if lb == nlb:
 					lowprec.pop(index)
 		
-		print(lowprec)
-		print(in_notin)
+		for kb0, kb1 in in_notin:
+			# string     : "not expr in expr"
+			# figure out : bounds of expressions attached to `in`
+			#
+			# lowprec[0]
+			#  |  |
+			#  b0 b1 kb0  kb1
+			#  | /      \/
+			# "not expr in expr"
+			#  ^              ^
+			#  blhs        bhrs
+			
+			blhs = 0
+			brhs = len(src)
+			for b0, b1 in lowprec:
+				blhs = min
+				
+				pass
+
+			# find expr span LHS and RHS
+			
+			pass
 
 		# using this LUT, then locate the `in`
 		# then figure out the bounds of all expressions on either side of the `in`
