@@ -60,11 +60,24 @@ style points:
 
 this will coerce away from `bool`, but that's mostly fine, the condition expr in an `if` will coerce back to `bool`.
 
-yeah, precedence issues. let's just hope that they don't give us something like this.
+~~yeah, precedence issues. let's just hope that they don't give us something like this.~~
 
 ```py
 not x == y      # not (x == y)
 False == x == y # (False == x) == y
+```
+
+they do, well i challenged myself here. anyway, the seemlying normal code below gets turned into a precedence mess.
+
+i need to paren the expressions, good thing i have routines and algorithms to find and do this when i was working on replacing `in`.
+
+```py
+_if0 and num % 3 == 0
+# goes to:
+_if0 & num % 3 == 0
+(_if0 & (num % 3)) == 0
+# should be:
+_if0 & (num % 3 == 0)
 ```
 
 # else

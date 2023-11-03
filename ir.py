@@ -516,7 +516,7 @@ class Program:
 		in_notin = []
 
 		in_notin_re = re.compile(r'\b(not in|in)\b')
-		lowprec_re = re.compile(r'(=)|(\b(and|or|not)\b)')
+		lowprec_re = re.compile(r'(\b(and|or|not|=)\b)')
 
 		for valid, start, end in iter_to_identifers(src):
 			if not valid:
@@ -571,6 +571,49 @@ class Program:
 			nsrc += src[brhs:]
 
 		return nsrc
+	
+	def transform_expr_paren_exprs_and_or_not(self, src: str) -> str:
+		# add parens to all `and` + `or` expressions
+		# `not` expressions don't apply here.
+		#
+		# expr and not expr
+		# (expr) & (False == expr)
+
+		lowprec = []
+
+		lowprec_re = re.compile(r'(\b(and|or|=)\b)')
+
+		for valid, start, end in iter_to_identifers(src):
+			if not valid:
+				continue
+
+			for f in lowprec_re.finditer(src, start, end):
+				lowprec.append((f.start(0), f.end(0)))
+
+		if len(lowprec) == 0:
+			return src
+		elif len(lowprec) == 1 and src[lowprec[0][0]:lowprec[0][1]] == '=':
+			return src
+		
+		# expr and not expr or expr
+		#      ^^^          ^^
+		#    lb   ub      lb  ub
+		#
+		# replace inner.
+		
+		start = 0
+		nsrc = ''
+		for lb, ub in lowprec:
+			inner = src[lb:ub]
+			if inner == '=':
+				nsrc += f"{src[start:lb]}"
+			else:
+				nsrc += f"({src[start:lb]})"
+			nsrc += f"{inner}"
+			start = ub
+		nsrc += f"({src[start:]})"
+
+		return nsrc
 
 	#
 	# 1. | not hello("test") and cond() or value not in obj
@@ -585,6 +628,7 @@ class Program:
 		# ---- remove all `in` + `not in`
 
 		src = node.src
+		src = self.transform_expr_paren_exprs_and_or_not(src)
 		src = self.transform_expr_sub_exprs_in(src)
 
 		# ---- remove all `not` + `and` + `or`
