@@ -80,6 +80,13 @@ _if0 & num % 3 == 0
 _if0 & (num % 3 == 0)
 ```
 
+TODO: oh yeah, this fails on the below. it prints the wrong type.
+```py
+print(0 and 1)
+# goes to:
+print(0 & 1)
+```
+
 # else
 
 ```py
@@ -268,3 +275,52 @@ finding the expressions between an `in` and `not in` is also hard, it requires s
 ```
 
 all the logical expressions have a higher bind power than arithmetic. all we have to do is just find the center, march outwards till we hit an `and` or `or`, and we've isolated the expression.
+
+---
+
+# the end?
+
+```py
+def fizzbuzz(limit):
+	fb_count = 0
+	for num in range(1, limit + 1):
+		if num % 3 == 0 and num % 5 == 0:
+			print("FizzBuzz")
+			fb_count += 1
+		elif num % 3 == 0:
+			print("Fizz")
+		elif num % 5 == 0:
+			print("Buzz")
+		else:
+			print(num)
+	return fb_count
+```
+> original
+```py
+def fizzbuzz(limit):
+	fb_count = 0
+	_iter0 = iter(range(1, limit + 1))
+	_for0 = True
+	while _for0:
+		try:
+			num = next(_iter0)
+		except StopIteration:
+			_for0 = False
+			continue 
+		_if0 = True
+		if (num % 3 == 0 )&( num % 5 == 0):
+			_if0 = False
+			print("FizzBuzz")
+			fb_count += 1
+		if (_if0 )&( num % 3 == 0):
+			_if0 = False
+			print("Fizz")
+		if (_if0 )&( num % 5 == 0):
+			_if0 = False
+			print("Buzz")
+		if _if0:
+			print(num)
+	yield fb_count
+	yield None
+```
+> transformation (as of recent)

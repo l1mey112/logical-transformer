@@ -16,12 +16,15 @@ def main():
 	# yeah, we don't need this
 	# passes = get_passes(sys.argv[2])
 
-	python_src = open(sys.argv[1]).read()
+	with open(sys.argv[1], "r") as f:
+		python_src = f.read()
 
 	program = Program(python_src)
 	program.transform()
 	new_src = program.transpile()
-	print(new_src, end="")
+
+	with open(sys.argv[1], "w") as f:
+		f.write(new_src)
 
 if __name__ == "__main__":
 	main()

@@ -186,15 +186,8 @@ class Program:
 		self.index += 1
 		return line
 	
-	def construct_expr(self, expr: str) -> IRNode:
-		for valid, start, end in iter_to_identifers(expr):
-			if not valid:
-				continue
-
-			token = expr[start:end]
-			if "in" in token:
-				self.use_inhelper = True
-		
+	def construct_expr(self, expr: str) -> IRNode:		
+		# possibly deprecate?
 		return IRUnit(expr)
 	
 	def construct_ir(self, last_indent: int) -> List[IRNode]:
@@ -516,7 +509,7 @@ class Program:
 		in_notin = []
 
 		in_notin_re = re.compile(r'\b(not in|in)\b')
-		lowprec_re = re.compile(r'(\b(and|or|not|=)\b)')
+		lowprec_re = re.compile(r'\b(=|and|or|not|)\b')
 
 		for valid, start, end in iter_to_identifers(src):
 			if not valid:
@@ -538,6 +531,9 @@ class Program:
 		
 		if len(in_notin) == 0:
 			return src
+
+		# generate _inhelper()
+		self.use_inhelper = True
 
 		nsrc = ''
 		for is_in, kb0, kb1 in in_notin:
@@ -581,7 +577,7 @@ class Program:
 
 		lowprec = []
 
-		lowprec_re = re.compile(r'(\b(and|or|=)\b)')
+		lowprec_re = re.compile(r'\b(=|and|or|,|\(|\))\b')
 
 		for valid, start, end in iter_to_identifers(src):
 			if not valid:
@@ -605,7 +601,7 @@ class Program:
 		nsrc = ''
 		for lb, ub in lowprec:
 			inner = src[lb:ub]
-			if inner == '=':
+			if inner in ['=', ',', '(', ')']:
 				nsrc += f"{src[start:lb]}"
 			else:
 				nsrc += f"({src[start:lb]})"
