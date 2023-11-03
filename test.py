@@ -9,7 +9,6 @@ def fib(n):
 	
 	return memo[n]
 
-
 def main():
 	v = fib(10)
 	print(v)

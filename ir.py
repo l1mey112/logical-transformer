@@ -147,20 +147,6 @@ def iter_to_identifers(src: str):
 				start = i + 1		
 		i += 1
 
-def isolate_exprs_in(src: str, lhs: int, rhs: int) -> (int, int):
-	# walk forward or backwards (depending on lhs or rhs),
-	# until hitting an operator with a lower precedence than
-	# `in` and `not in`. prefix or infix doesn't matter,
-	# logic all lines up here.
-	#
-	# lower prec: `not` + `and` + `or`
-
-	# expr not in expr
-	#      ^    ^
-	#    lhs    rhs
-
-	pass
-
 def find_inner_parens(src: str, start: int) -> int:
 	# assume all parens are balanced, don't bother checking `len()`
 
@@ -183,6 +169,7 @@ class Program:
 		self.index = 0
 		self.lines_iterator = iter(self.line_next, None)
 		#
+		self.use_inhelper = False
 		self.function_decls = {}
 		self.tmp_break_stack = []
 		self.tmp_counter_prefix = {}
@@ -200,7 +187,14 @@ class Program:
 		return line
 	
 	def construct_expr(self, expr: str) -> IRNode:
-		# possibly deprecate
+		for valid, start, end in iter_to_identifers(expr):
+			if not valid:
+				continue
+
+			token = expr[start:end]
+			if "in" in token:
+				self.use_inhelper = True
+		
 		return IRUnit(expr)
 	
 	def construct_ir(self, last_indent: int) -> List[IRNode]:
@@ -258,7 +252,7 @@ class Program:
 					# -- i like to pick and choose.
 					
 					exprs = []
-					for line in dedented_line[len(token):].split(","):
+					for line in dedented_line[len(token):].split(",", 1):
 						exprs.append(self.construct_expr(line.strip()))
 					stmts.append(IRAssert(exprs))
 				case 'while':
@@ -453,6 +447,9 @@ class Program:
 					nbody.append(IRFn(
 						name, src, transformed + [IRUnitStmt(f"yield", IRUnit('None'))]
 					))
+				case IRIndent(token, expr, body):
+					transformed = self.transform_stmts_recurse(body)
+					nbody.append(IRIndent(token, expr, transformed))
 				case IRUnit():
 					nbody.append(op) # not transforming expressions yet
 				case other:
@@ -509,30 +506,71 @@ class Program:
 			start = end_inner
 
 		return nstr
+	
+	def transform_expr_sub_exprs_in(self, src: str) -> str:
+		# find all `and` + `or` + `not`
+		# find all `not in` + `in`
+		# create LUT with these lower precedence operators
 
-#	def transform_expr_str(self, src: str) -> str:
-#		# precedence:
-#		#   1. not
-#		#   2. in, not in, or, and
-#		#   3. call()
-#
-#		rep = {
-#			'and': '&',
-#			'or': '|',
-#			'not': 'False ==',
-#		}
-#		src = re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], src)
-#
-#		# replace list: "func1|func2|func3" -> insert inside regex
-#		replace_list = '|'.join(self.function_decls.keys())
-#		if replace_list == '':
-#			# no need to convert any functions
-#			return src
-#
-#		pattern = re.compile(fr'\b({replace_list})\s*(\()')
-#
-#		src = self.transform_expr_nested_calls_str(src, pattern)
-#		return src
+		lowprec = []
+		in_notin = []
+
+		in_notin_re = re.compile(r'\b(not in|in)\b')
+		lowprec_re = re.compile(r'(=)|(\b(and|or|not)\b)')
+
+		for valid, start, end in iter_to_identifers(src):
+			if not valid:
+				continue
+
+			for f in in_notin_re.finditer(src, start, end):
+				in_notin.append((f.group(0) == "in", f.start(0), f.end(0)))
+			for f in lowprec_re.finditer(src, start, end):
+				lowprec.append((f.start(0), f.end(0)))
+
+		# "not in" will be parsed as "not" and "not in" in
+		# each bucket respectively, remove them from the operators.
+		for index, vals in enumerate(lowprec):
+			lb, ub = vals
+			for _, nlb, _ in in_notin:
+				if lb == nlb:
+					lowprec.pop(index)
+					break
+		
+		if len(in_notin) == 0:
+			return src
+
+		nsrc = ''
+		for is_in, kb0, kb1 in in_notin:
+			# string     : "not expr in expr"
+			# figure out : bounds of expressions attached to `in`
+			#
+			# lowprec[0]
+			#  |  |
+			#  b0 b1 kb0  kb1
+			#  | /      \/
+			# "not expr in expr"
+			#  ^              ^
+			#  blhs        bhrs
+
+			blhs = 0
+			brhs = len(src)
+			for b0, b1 in lowprec:
+				if b1 < kb0:
+					blhs = max(blhs, b1)
+				if b0 > kb1:
+					brhs = max(brhs, b0)
+			
+			expr_lhs = src[blhs:kb0].strip()
+			expr_rhs = src[kb1 + 1:brhs].strip()
+
+			rep_typ = "" if is_in else "not "
+
+			# built up new `src`
+			nsrc += src[:blhs]
+			nsrc += f"{rep_typ}_inhelper({expr_lhs}, {expr_rhs})"
+			nsrc += src[brhs:]
+
+		return nsrc
 
 	#
 	# 1. | not hello("test") and cond() or value not in obj
@@ -544,63 +582,10 @@ class Program:
 	# issue, we need to isolate expressions properly
 	#
 	def transform_expr(self, node: IRUnit):
-		nsrc = ''
-		
 		# ---- remove all `in` + `not in`
 
-		# find all `and` + `or` + `not`
-		# find all `not in` + `in`
-		# create LUT with these lower precedence operators
-
 		src = node.src
-		lowprec = []
-		in_notin = []
-
-		in_notin_re = re.compile(r'\b(not in|in)\b')
-		lowprec_re = re.compile(r'\b(and|or|not)\b')
-
-		for valid, start, end in iter_to_identifers(src):
-			if not valid:
-				continue
-			
-			for f in lowprec_re.finditer(src, start, end):
-				lowprec.append((f.start(0), f.end(0)))
-			for f in in_notin_re.finditer(src, start, end):
-				in_notin.append((f.start(0), f.end(0)))
-
-		# "not in" will be parsed as "not" and "not in" in
-		# each bucket respectively, remove them from the operators.
-		for index, vals in enumerate(lowprec):
-			lb, ub = vals
-			for nlb, _ in in_notin:
-				if lb == nlb:
-					lowprec.pop(index)
-		
-		for kb0, kb1 in in_notin:
-			# string     : "not expr in expr"
-			# figure out : bounds of expressions attached to `in`
-			#
-			# lowprec[0]
-			#  |  |
-			#  b0 b1 kb0  kb1
-			#  | /      \/
-			# "not expr in expr"
-			#  ^              ^
-			#  blhs        bhrs
-			
-			blhs = 0
-			brhs = len(src)
-			for b0, b1 in lowprec:
-				blhs = min
-				
-				pass
-
-			# find expr span LHS and RHS
-			
-			pass
-
-		# using this LUT, then locate the `in`
-		# then figure out the bounds of all expressions on either side of the `in`
+		src = self.transform_expr_sub_exprs_in(src)
 
 		# ---- remove all `not` + `and` + `or`
 
@@ -610,8 +595,9 @@ class Program:
 			'not': 'False ==',
 		}
 
-		for valid, start, end in iter_to_identifers(node.src):
-			v = node.src[start:end]
+		nsrc = ''
+		for valid, start, end in iter_to_identifers(src):
+			v = src[start:end]
 			if valid:
 				nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
 			else:
@@ -639,9 +625,6 @@ class Program:
 					self.transform_exprs_recurse(body)
 				case IRElse(body):
 					self.transform_exprs_recurse(body)
-				case IRIndent(_, expr, body):
-					self.transform_expr(expr)
-					self.transform_exprs_recurse(body)
 				case IRAssert(exprs):
 					self.transform_exprs_recurse(exprs)
 				case IRWhile(cond, body):
@@ -660,6 +643,9 @@ class Program:
 					self.transform_expr(expr)
 				case IRUnit():
 					self.transform_expr(op)
+				case IRIndent(_, expr, body):
+					self.transform_expr(expr)
+					self.transform_exprs_recurse(body)
 				case other:
 					assert False, other
 	
@@ -726,4 +712,11 @@ class Program:
 		return code
 
 	def transpile(self) -> str:
-		return "\n".join(self.transpile_recurse(self.program, 0))
+		program_str = "\n".join(self.transpile_recurse(self.program, 0))
+
+		inhelper = '_inhelper = lambda needle, haystack : any(filter(lambda _x: _x == needle, haystack))'
+		
+		if self.use_inhelper:
+			program_str = inhelper + "\n" + program_str
+
+		return program_str

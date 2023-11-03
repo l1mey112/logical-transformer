@@ -228,7 +228,7 @@ def key_in(needle, haystack):
     return False
 ```
 
-the `in` expression is functionally equivalent to the code above. no really, unless you're overloading `__contains__` that code is basically it. `filter` isn't bad! it would follows the same looping logic with no list comprehension, or `for` keyword. wrap the whole thing in another lambda, because we can't use `reuturn`, and also to avoid invoking side effects multiple times inside the original labmda.
+the `in` expression is functionally equivalent to the code above. no really, unless you're overloading `__contains__` that code is basically it. `filter` isn't bad! it would follows the same looping logic with no list comprehension, or `for` keyword. wrap the whole thing in another lambda, because we can't use `return`, and also to avoid invoking side effects multiple times inside the original labmda.
 
 ```py
 _inhelper = lambda needle, haystack : any(filter(lambda _x: _x == needle, haystack))
