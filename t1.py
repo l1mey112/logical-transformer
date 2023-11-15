@@ -11,7 +11,7 @@ def fizzbuzz(limit):
 		else:
 			print(num)
 	return fb_count
-		
+
 def main():
 	n = 15
 	print("Playing FizzBuzz game up to", n)

@@ -13,7 +13,7 @@ class IRIndent:
 @dataclass
 class IRFn:
 	name: str
-	src: str
+	params: str
 	body: List['IrNode']
 
 @dataclass
@@ -170,9 +170,9 @@ class Program:
 		self.lines_iterator = iter(self.line_next, None)
 		#
 		self.use_inhelper = False
-		self.function_decls = {}
 		self.tmp_break_stack = []
 		self.tmp_counter_prefix = {}
+		self.current_fn_ret = None
 		self.program = self.construct_ir(0)
 	
 	def line_rewind(self):
@@ -228,10 +228,12 @@ class Program:
 				case 'else':
 					stmts.append(IRElse(self.construct_ir(current_indent)))
 				case 'def':
-					name = dedented_line[len(token):].split('(', 1)[0].strip()
+					components = dedented_line[len(token):].split('(', 1)
+					components[1] = '(' + components[1]
+					name = components[0].strip()
+					params = components[1].strip()
 					body = self.construct_ir(current_indent)
-					func = IRFn(name, dedented_line, body)
-					self.function_decls[name] = func
+					func = IRFn(name, params, body)
 					stmts.append(func)
 				case 'return':
 					expr = self.construct_expr(dedented_line[len(token):].strip())
@@ -433,13 +435,18 @@ class Program:
 					nbody.append(IRUnit(f"{top_tmp} = False"))
 					nbody.append(IRUnitStmt(f"continue", IRUnit('')))
 				case IRReturn(expr):
-					expr = IRUnit(self.transpile_expr(expr))
-					nbody.append(IRUnitStmt('yield', expr))
-				case IRFn(name, src, body):
+					nsrc = self.transpile_expr(expr)
+					nbody.append(IRUnit(f'{self.current_fn_ret} = {nsrc}'))
+					nbody.append(IRUnit('yield'))
+				case IRFn(name, params, body):
+					assert self.current_fn_ret == None
+					new_fn_name = self.transform_new_temp_var(name)
+					self.current_fn_ret = self.transform_new_temp_var(f"ret_{name}")
 					transformed = self.transform_stmts_recurse(body)
-					nbody.append(IRFn(
-						name, src, transformed + [IRUnitStmt(f"yield", IRUnit('None'))]
-					))
+					transformed = [IRUnit(f"global {self.current_fn_ret}"), IRUnit(f"{self.current_fn_ret} = None")] + transformed
+					nbody.append(IRFn(new_fn_name, params, transformed))
+					nbody.append(IRUnit(f"{name} = lambda : ({new_fn_name}(), {self.current_fn_ret})[1]"))
+					self.current_fn_ret = None
 				case IRIndent(token, expr, body):
 					transformed = self.transform_stmts_recurse(body)
 					nbody.append(IRIndent(token, expr, transformed))
@@ -451,55 +458,6 @@ class Program:
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
 
-	def transform_expr_nested_calls_str(self, src: str, pattern: re.Pattern) -> str:
-		# a recursive descent parser using regex is never a good idea
-		#
-		# call(another(), expr)
-		#      ^^^^^^^^^
-		# ^^^^^^^^^^^^^^^^^^^^^
-		# if call is "ours", replace with `next(expr())`
-		#
-		# hello()
-		# |    \ start searching for bounds of ()
-		# \ start of function name
-		#
-		#                     hello ( hello() + hello() )
-		# 1.          find -> ^^^^^ /^^^^^^^^^^^^^^^^^^^^
-		# 2. locate bounds -> -----/
-		# 3. recurse       -\
-		#
-		#                     hello() + hello()
-		# 1.          find -> ^^^^^/^
-		# 2. locate bounds -> ----/
-		# 3. recurse       -\
-		#                   empty inner, stop.
-		#
-		# ---- after recursion onto inner bounds, iterate to next.
-		#      march along the string applying transformations.
-		nstr = ''
-		start = 0
-		while start < len(src):
-			rmatch = pattern.search(src, start)
-			if not rmatch:
-				nstr += src[start:]
-				break
-
-			start_all = rmatch.start(1)
-			func_str = src[start_all:rmatch.end(1)]
-			start_inner = rmatch.start(2)
-			end_inner = find_inner_parens(src, start_inner)
-			inner = src[start_inner + 1:end_inner - 1]
-			# [start_inner:end_inner] == "..."
-			#                             ^^^
-			# recurse downwards
-			tinner = self.transform_expr_nested_calls_str(inner, pattern)
-
-			nstr += src[start:start_all] # add all before
-			nstr += f"next({func_str}({tinner}))"
-			start = end_inner
-
-		return nstr
-	
 	def transform_expr_sub_exprs_in(self, src: str) -> str:
 		# find all `and` + `or` + `not`
 		# find all `not in` + `in`
@@ -624,35 +582,26 @@ class Program:
 		# ---- remove all `in` + `not in`
 
 		src = node.src
-		src = self.transform_expr_paren_exprs_and_or_not(src)
+		# src = self.transform_expr_paren_exprs_and_or_not(src)
 		src = self.transform_expr_sub_exprs_in(src)
 
 		# ---- remove all `not` + `and` + `or`
 
-		rep = {
-			'and': '&',
-			'or': '|',
-			'not': 'False ==',
-		}
+		#rep = {
+		#	'and': '&',
+		#	'or': '|',
+		#	'not': 'False ==',
+		#}
+		#
+		#nsrc = ''
+		#for valid, start, end in iter_to_identifers(src):
+		#	v = src[start:end]
+		#	if valid:
+		#		nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
+		#	else:
+		#		nsrc += v
 
-		nsrc = ''
-		for valid, start, end in iter_to_identifers(src):
-			v = src[start:end]
-			if valid:
-				nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
-			else:
-				nsrc += v
-		
-		# ---- replace all `funcall()` with `next(funcall())`
-
-		# replace list: "func1|func2|func3" -> insert inside regex
-		replace_list = '|'.join(self.function_decls.keys())
-		if replace_list != '':
-			# need to convert functions
-			pattern = re.compile(fr'\b({replace_list})\s*(\()')
-			nsrc = self.transform_expr_nested_calls_str(nsrc, pattern)
-
-		node.src = nsrc
+		node.src = src
 
 	def transform_exprs_recurse(self, abody: List[IRNode]):
 		for op in abody:
@@ -738,8 +687,8 @@ class Program:
 				case IRAssert(exprs):
 					exprs_str = ", ".join(map(self.transpile_expr, exprs))
 					code.append(f"{indent_line}assert {exprs_str}")
-				case IRFn(_, src, body):
-					code.append(f"{indent_line}{src}")
+				case IRFn(name, params, body):
+					code.append(f"{indent_line}def {name}{params}")
 					code += self.transpile_recurse(body, indent + 1)
 				case IRReturn(expr):
 					code.append(f"{indent_line}return {self.transpile_expr(expr)}")

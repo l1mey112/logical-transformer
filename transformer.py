@@ -23,8 +23,10 @@ def main():
 	program.transform()
 	new_src = program.transpile()
 
-	with open(sys.argv[1], "w") as f:
-		f.write(new_src)
+	print(new_src)
+
+	#with open(sys.argv[1], "w") as f:
+	#	f.write(new_src)
 
 if __name__ == "__main__":
 	main()
