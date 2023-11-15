@@ -229,7 +229,7 @@ class Program:
 					stmts.append(IRElse(self.construct_ir(current_indent)))
 				case 'def':
 					components = dedented_line[len(token):].split('(', 1)
-					components[1] = '(' + components[1]
+					components[1] = components[1].removesuffix("):")
 					name = components[0].strip()
 					params = components[1].strip()
 					body = self.construct_ir(current_indent)
@@ -443,9 +443,11 @@ class Program:
 					new_fn_name = self.transform_new_temp_var(name)
 					self.current_fn_ret = self.transform_new_temp_var(f"ret_{name}")
 					transformed = self.transform_stmts_recurse(body)
-					transformed = [IRUnit(f"global {self.current_fn_ret}"), IRUnit(f"{self.current_fn_ret} = None")] + transformed
+					# global _ret_func0, set _ret_func0 to None, force to be iterator
+					transformed = [IRUnit(f"global {self.current_fn_ret}"), IRUnit(f"{self.current_fn_ret} = None")] + transformed + [IRUnit("yield")]
 					nbody.append(IRFn(new_fn_name, params, transformed))
-					nbody.append(IRUnit(f"{name} = lambda : ({new_fn_name}(), {self.current_fn_ret})[1]"))
+					paramsrc = '' if params == '' else f' {params}'
+					nbody.append(IRUnit(f"{name} = lambda{paramsrc} : (next({new_fn_name}({params})), {self.current_fn_ret})[1]"))
 					self.current_fn_ret = None
 				case IRIndent(token, expr, body):
 					transformed = self.transform_stmts_recurse(body)
@@ -688,7 +690,7 @@ class Program:
 					exprs_str = ", ".join(map(self.transpile_expr, exprs))
 					code.append(f"{indent_line}assert {exprs_str}")
 				case IRFn(name, params, body):
-					code.append(f"{indent_line}def {name}{params}")
+					code.append(f"{indent_line}def {name}({params}):")
 					code += self.transpile_recurse(body, indent + 1)
 				case IRReturn(expr):
 					code.append(f"{indent_line}return {self.transpile_expr(expr)}")

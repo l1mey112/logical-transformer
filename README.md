@@ -180,24 +180,25 @@ if not expr():
 # return
 
 ```py
-def func():
+def func(test):
     if test:
         return 10
 
-a = func()
+a = func(False)
 ```
 > original
 ```py
-def _func0():
+def _func0(test):
     global _ret_func0
     _ret_func0 = None
     if test:
         _ret_func0 = 10
         yield
+    yield
 
-func = lambda : (_func0(), _ret_func0)[1]
+func = lambda test : (next(_func0(test)), _ret_func0)[1]
 
-a = func()
+a = func(False)
 ```
 > transformation
 
