@@ -188,12 +188,16 @@ a = func()
 ```
 > original
 ```py
-def func():
+def _func0():
+    global _ret_func0
+    _ret_func0 = None
     if test:
-        yield 10
-    yield None
+        _ret_func0 = 10
+        yield
 
-a = next(func())
+func = lambda : (_func0(), _ret_func0)[1]
+
+a = func()
 ```
 > transformation
 
@@ -270,7 +274,7 @@ finding the expressions between an `in` and `not in` is also hard, it requires s
 ```py
 >>> print(ast.dump(ast.parse('x in [x] + 2'), indent=4))
 #        in
-#       /   \
+#       /  \
 #      x  [x] + 2
 ```
 
@@ -296,31 +300,7 @@ def fizzbuzz(limit):
 	return fb_count
 ```
 > original
-```py
-def fizzbuzz(limit):
-	fb_count = 0
-	_iter0 = iter(range(1, limit + 1))
-	_for0 = True
-	while _for0:
-		try:
-			num = next(_iter0)
-		except StopIteration:
-			_for0 = False
-			continue 
-		_if0 = True
-		if (num % 3 == 0 )&( num % 5 == 0):
-			_if0 = False
-			print("FizzBuzz")
-			fb_count += 1
-		if (_if0 )&( num % 3 == 0):
-			_if0 = False
-			print("Fizz")
-		if (_if0 )&( num % 5 == 0):
-			_if0 = False
-			print("Buzz")
-		if _if0:
-			print(num)
-	yield fb_count
-	yield None
-```
+
+*redo transformation*
+
 > transformation (as of recent)
