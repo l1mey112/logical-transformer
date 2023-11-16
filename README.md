@@ -269,6 +269,8 @@ else:
 
 do this all in one go, it's easier.
 
+remember to put parens around the condition expression if further expression transformations mess up the precedence. also remember to short circuit the condition expression, you don't want to invoke it when it's not needed.
+
 ```py
 if cond():
 	print('test0')
@@ -285,10 +287,10 @@ _if0 = True
 if cond():
     _if0 = False
     print('test0')
-if _if0 and cond():
+if _if0 and (cond()):
     _if0 = False
     print('test1')
-if _if0 and cond():
+if _if0 and (cond()):
     _if0 = False
     print('test2')
 if _if0:
@@ -337,6 +339,8 @@ a = func(False)
 
 # break
 
+remember to put parens around the condition expression if further expression transformations mess up the precedence.
+
 ```py
 while cond():
     if expr():
@@ -345,7 +349,7 @@ while cond():
 > original
 ```py
 _while0 = True
-while _while0 and cond(): # short circuit
+while _while0 and (cond()): # short circuit
     if expr():
         _while0 = False
         continue
@@ -354,7 +358,9 @@ while _while0 and cond(): # short circuit
 
 # for (counter) + for (iterator)
 
-possible for a for loop to unpack into multiple variables, look out for that.
+take the condition of the for loop, the `v in range(0, 15)`, and split on "in" to grab both sides. it's possible for a for loop to unpack into multiple variables, look out for that.
+
+instead of `next(_iter0, None)` there is a possibility that the generator can just return `None` and still not be finished. check for the `StopIteration` exception instead.
 
 ```py
 for v in range(0, 15):

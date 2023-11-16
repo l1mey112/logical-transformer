@@ -376,7 +376,7 @@ class Program:
 
 		if contains_break:	
 			nbody.append(IRUnit(f"{tmp} = True"))
-			expr_str = f"{tmp} and {node.cond.src}"
+			expr_str = f"{tmp} and ({node.cond.src})"
 			self.tmp_break_stack.pop()
 		else:
 			expr_str = node.cond.src
