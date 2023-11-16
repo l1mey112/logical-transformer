@@ -185,7 +185,25 @@ a transformation output from removing an else/elif, since we know the expression
 if _if0 |_and| (num % 3 == 0):
 ```
 
-easy, solved now.
+will still fail on things like this, on the fizzbuzz example:
+
+```py
+if num % 3 == 0 and num % 5 == 0:
+```
+
+it gets parsed like below, with the `|` being too greedy. this would work if python defined an `__req__` to work with `==` or any other operator with equal precedence, but they don't. we have to make do here.
+
+```py
+if num % 3 == (0 |_and)| num % 5 == 0:
+```
+
+i don't want to ask too much of my implementation, i'll take what i can get. updating the code to below manually works fine, and this is just for me. they will NOT assess us on anything NEAR this level.
+
+```py
+if (num % 3 == 0) and (num % 5 == 0):
+```
+
+with all of that, it's easy, solved now.
 
 ```py
 class _Infix:
@@ -396,6 +414,17 @@ finding the expressions between an `in` and `not in` is also hard, it requires s
 
 all the logical expressions have a higher bind power than arithmetic. all we have to do is just find the center, march outwards till we hit an `and` or `or`, and we've isolated the expression.
 
+**how i really solved it**
+
+ignore the above, that was a parsing string manipulation mess. it's garbage, just use the method i defined above (the super secret one).
+
+use the below constructs then replace every `in` with `|_in|`, and `not in` with `|_notin|`. so much easier.
+
+```py
+_in = _Infix(lambda x, y: any(filter(lambda _x: _x == x, y)))
+_notin = _Infix(lambda x, y: False == any(filter(lambda _x: _x == x, y)))
+```
+
 ---
 
 # the end?
@@ -404,7 +433,7 @@ all the logical expressions have a higher bind power than arithmetic. all we hav
 def fizzbuzz(limit):
 	fb_count = 0
 	for num in range(1, limit + 1):
-		if num % 3 == 0 and num % 5 == 0:
+		if (num % 3 == 0) and (num % 5 == 0):
 			print("FizzBuzz")
 			fb_count += 1
 		elif num % 3 == 0:
@@ -414,9 +443,62 @@ def fizzbuzz(limit):
 		else:
 			print(num)
 	return fb_count
+
+def main():
+	n = 15
+	print("Playing FizzBuzz game up to", n)
+	fb_count = fizzbuzz(n)
+	print("Total FizzBuzz:", fb_count)
+
+if __name__ == "__main__":
+	main()
 ```
 > original
-
-*redo transformation*
-
+```py
+class _Infix:
+	__init__ = lambda self, function : setattr(self, "function", function)
+	__ror__ = lambda self, other : _Infix(lambda x, self=self, other=other: self.function(other, x))
+	__or__ = lambda self, other : self.function(other)
+_and = _Infix(lambda x, y: bool(x) & bool(y))
+def _fizzbuzz0(limit):
+	global _ret_fizzbuzz0
+	_ret_fizzbuzz0 = None
+	fb_count = 0
+	_iter0 = iter(range(1, limit + 1))
+	_for0 = True
+	while _for0:
+		try:
+			num = next(_iter0)
+		except StopIteration:
+			_for0 = False
+			continue 
+		_if0 = True
+		if (num % 3 == 0) |_and| (num % 5 == 0):
+			_if0 = False
+			print("FizzBuzz")
+			fb_count += 1
+		if _if0 |_and| (num % 3 == 0):
+			_if0 = False
+			print("Fizz")
+		if _if0 |_and| (num % 5 == 0):
+			_if0 = False
+			print("Buzz")
+		if _if0:
+			print(num)
+	_ret_fizzbuzz0 = fb_count
+	yield
+	yield
+fizzbuzz = lambda limit : (next(_fizzbuzz0(limit)), _ret_fizzbuzz0)[1]
+def _main0():
+	global _ret_main0
+	_ret_main0 = None
+	n = 15
+	print("Playing FizzBuzz game up to", n)
+	fb_count = fizzbuzz(n)
+	print("Total FizzBuzz:", fb_count)
+	yield
+main = lambda : (next(_main0()), _ret_main0)[1]
+if __name__ == "__main__":
+	main()
+```
 > transformation (as of recent)

@@ -170,6 +170,9 @@ class Program:
 		self.lines_iterator = iter(self.line_next, None)
 		#
 		self.use_inhelper = False
+		self.use_notinhelper = False
+		self.use_andhelper = False
+		self.use_orhelper = False
 		self.tmp_break_stack = []
 		self.tmp_counter_prefix = {}
 		self.current_fn_ret = None
@@ -332,7 +335,7 @@ class Program:
 					nbody.append(IRIf(expr, tbody))
 				case IRElif(expr, body):
 					transformed = self.transform_stmts_recurse(op.body)
-					tcond = IRUnit(f"{temp_var} and {expr.src}")
+					tcond = IRUnit(f"{temp_var} and ({expr.src})") # quoted expryou've probably asked this so i'll do
 					tbody = [IRUnit(f"{temp_var} = False")] + transformed
 					nbody.append(IRIf(tcond, tbody))
 				case IRElse(body):
@@ -460,150 +463,38 @@ class Program:
 		# work on expressions, to remove keywords introduced by previous stmt transformations
 		return nbody
 
-	def transform_expr_sub_exprs_in(self, src: str) -> str:
-		# find all `and` + `or` + `not`
-		# find all `not in` + `in`
-		# create LUT with these lower precedence operators
-
-		lowprec = []
-		in_notin = []
-
-		in_notin_re = re.compile(r'\b(not in|in)\b')
-		lowprec_re = re.compile(r'\b(=|and|or|not|)\b')
-
-		for valid, start, end in iter_to_identifers(src):
-			if not valid:
-				continue
-
-			for f in in_notin_re.finditer(src, start, end):
-				in_notin.append((f.group(0) == "in", f.start(0), f.end(0)))
-			for f in lowprec_re.finditer(src, start, end):
-				lowprec.append((f.start(0), f.end(0)))
-
-		# "not in" will be parsed as "not" and "not in" in
-		# each bucket respectively, remove them from the operators.
-		for index, vals in enumerate(lowprec):
-			lb, ub = vals
-			for _, nlb, _ in in_notin:
-				if lb == nlb:
-					lowprec.pop(index)
-					break
-		
-		if len(in_notin) == 0:
-			return src
-
-		# generate _inhelper()
-		self.use_inhelper = True
-
-		nsrc = ''
-		for is_in, kb0, kb1 in in_notin:
-			# string     : "not expr in expr"
-			# figure out : bounds of expressions attached to `in`
-			#
-			# lowprec[0]
-			#  |  |
-			#  b0 b1 kb0  kb1
-			#  | /      \/
-			# "not expr in expr"
-			#  ^              ^
-			#  blhs        bhrs
-
-			blhs = 0
-			brhs = len(src)
-			for b0, b1 in lowprec:
-				if b1 < kb0:
-					blhs = max(blhs, b1)
-				if b0 > kb1:
-					brhs = max(brhs, b0)
-			
-			expr_lhs = src[blhs:kb0].strip()
-			expr_rhs = src[kb1 + 1:brhs].strip()
-
-			rep_typ = "" if is_in else "not "
-
-			# built up new `src`
-			nsrc += src[:blhs]
-			nsrc += f"{rep_typ}_inhelper({expr_lhs}, {expr_rhs})"
-			nsrc += src[brhs:]
-
-		return nsrc
-	
-	def transform_expr_paren_exprs_and_or_not(self, src: str) -> str:
-		# add parens to all `and` + `or` expressions
-		# `not` expressions don't apply here.
-		#
-		# expr and not expr
-		# (expr) & (False == expr)
-
-		lowprec = []
-
-		lowprec_re = re.compile(r'\b(=|and|or|,|\(|\))\b')
-
-		for valid, start, end in iter_to_identifers(src):
-			if not valid:
-				continue
-
-			for f in lowprec_re.finditer(src, start, end):
-				lowprec.append((f.start(0), f.end(0)))
-
-		if len(lowprec) == 0:
-			return src
-		elif len(lowprec) == 1 and src[lowprec[0][0]:lowprec[0][1]] == '=':
-			return src
-		
-		# expr and not expr or expr
-		#      ^^^          ^^
-		#    lb   ub      lb  ub
-		#
-		# replace inner.
-		
-		start = 0
-		nsrc = ''
-		for lb, ub in lowprec:
-			inner = src[lb:ub]
-			if inner in ['=', ',', '(', ')']:
-				nsrc += f"{src[start:lb]}"
-			else:
-				nsrc += f"({src[start:lb]})"
-			nsrc += f"{inner}"
-			start = ub
-		nsrc += f"({src[start:]})"
-
-		return nsrc
-
-	#
-	# 1. | not hello("test") and cond() or value not in obj
-	# 2. | False == hello("test") & cond() | value not in obj
-	# 3. | False == hello("test") & cond() | False == _inhelper(value,  obj)
-	# 4. | False == next(hello("test")) & next(cond()) | False == _inhelper(value,  obj)
-	#
-	# `not in` and `in` transformations could introduce function calls.
-	# issue, we need to isolate expressions properly
-	#
 	def transform_expr(self, node: IRUnit):
-		# ---- remove all `in` + `not in`
-
 		src = node.src
-		# src = self.transform_expr_paren_exprs_and_or_not(src)
-		src = self.transform_expr_sub_exprs_in(src)
 
-		# ---- remove all `not` + `and` + `or`
+		# ---- remove all `not` + `and` + `or` + `in` + `not in`
+		rep = {
+			'and': '|_and|',
+			'or': '|_or|',
+			'not in': '|_notin|',
+			'in': '|_in|',
+			'not': 'False ==',
+		}
+		
+		nsrc = ''
+		for valid, start, end in iter_to_identifers(src):
+			v = src[start:end]
+			if valid:
+				def matchfn(match):
+					string = match.group(0)
+					if string == 'and':
+						self.use_andhelper = True
+					elif string == 'or':
+						self.use_orhelper = True
+					elif string == 'in':
+						self.use_inhelper = True
+					elif string == 'not in':
+						self.use_notinhelper = True
+					return rep[string]
+				nsrc += re.sub(r'\b(not in|and|or|not|in)\b', matchfn, v)
+			else:
+				nsrc += v
 
-		#rep = {
-		#	'and': '&',
-		#	'or': '|',
-		#	'not': 'False ==',
-		#}
-		#
-		#nsrc = ''
-		#for valid, start, end in iter_to_identifers(src):
-		#	v = src[start:end]
-		#	if valid:
-		#		nsrc += re.sub(r'\b(and|or|not)\b', lambda match: rep[match.group(0)], v)
-		#	else:
-		#		nsrc += v
-
-		node.src = src
+		node.src = nsrc
 
 	def transform_exprs_recurse(self, abody: List[IRNode]):
 		for op in abody:
@@ -705,9 +596,35 @@ class Program:
 	def transpile(self) -> str:
 		program_str = "\n".join(self.transpile_recurse(self.program, 0))
 
-		inhelper = '_inhelper = lambda needle, haystack : any(filter(lambda _x: _x == needle, haystack))'
-		
+		use_infixhelper = False
+
 		if self.use_inhelper:
-			program_str = inhelper + "\n" + program_str
+			inhelper = '_in = _Infix(lambda x, y: any(filter(lambda _x: _x == x, y)))\n'
+			program_str = inhelper + program_str
+			use_infixhelper = True
+		
+		if self.use_notinhelper:
+			notinhelper = '_notin = _Infix(lambda x, y: False == any(filter(lambda _x: _x == x, y)))\n'
+			program_str = notinhelper + program_str
+			use_infixhelper = True
+		
+		if self.use_andhelper:
+			andhelper = '_and = _Infix(lambda x, y: bool(x) & bool(y))\n'
+			program_str = andhelper + program_str
+			use_infixhelper = True
+		
+		if self.use_orhelper:
+			use_orhelper = '_or = _Infix(lambda x, y: bool(x) | bool(y))\n'
+			program_str = use_orhelper + program_str
+			use_infixhelper = True
+		
+		if use_infixhelper:
+			infixhelper = (
+				'class _Infix:\n'
+				'	__init__ = lambda self, function : setattr(self, "function", function)\n'
+				'	__ror__ = lambda self, other : _Infix(lambda x, self=self, other=other: self.function(other, x))\n'
+				'	__or__ = lambda self, other : self.function(other)\n'
+			)
+			program_str = infixhelper + program_str
 
 		return program_str
