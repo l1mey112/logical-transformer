@@ -173,6 +173,7 @@ class Program:
 		self.use_notinhelper = False
 		self.use_andhelper = False
 		self.use_orhelper = False
+		self.use_nothelper = False
 		self.tmp_break_stack = []
 		self.tmp_counter_prefix = {}
 		self.current_fn_ret = None
@@ -468,11 +469,11 @@ class Program:
 
 		# ---- remove all `not` + `and` + `or` + `in` + `not in`
 		rep = {
-			'and': '|_and|',
+			'and': '^_and^',
 			'or': '|_or|',
-			'not in': '|_notin|',
-			'in': '|_in|',
-			'not': 'False ==',
+			'not in': '&_notin&',
+			'in': '&_in&',
+			'not': '_not&',
 		}
 		
 		nsrc = ''
@@ -481,7 +482,9 @@ class Program:
 			if valid:
 				def matchfn(match):
 					string = match.group(0)
-					if string == 'and':
+					if string == 'not':
+						self.use_nothelper = True
+					elif string == 'and':
 						self.use_andhelper = True
 					elif string == 'or':
 						self.use_orhelper = True
@@ -595,36 +598,71 @@ class Program:
 
 	def transpile(self) -> str:
 		program_str = "\n".join(self.transpile_recurse(self.program, 0))
+		prelude_str = ""
 
-		use_infixhelper = False
-
-		if self.use_inhelper:
-			inhelper = '_in = _Infix(lambda x, y: any(filter(lambda _x: _x == x, y)))\n'
-			program_str = inhelper + program_str
-			use_infixhelper = True
-		
-		if self.use_notinhelper:
-			notinhelper = '_notin = _Infix(lambda x, y: False == any(filter(lambda _x: _x == x, y)))\n'
-			program_str = notinhelper + program_str
-			use_infixhelper = True
-		
-		if self.use_andhelper:
-			andhelper = '_and = _Infix(lambda x, y: bool(x) & bool(y))\n'
-			program_str = andhelper + program_str
-			use_infixhelper = True
-		
-		if self.use_orhelper:
-			use_orhelper = '_or = _Infix(lambda x, y: bool(x) | bool(y))\n'
-			program_str = use_orhelper + program_str
-			use_infixhelper = True
-		
-		if use_infixhelper:
-			infixhelper = (
-				'class _Infix:\n'
-				'	__init__ = lambda self, function : setattr(self, "function", function)\n'
-				'	__ror__ = lambda self, other : _Infix(lambda x, self=self, other=other: self.function(other, x))\n'
-				'	__or__ = lambda self, other : self.function(other)\n'
+		if self.use_inhelper or self.use_notinhelper:
+			inclass = (
+				'class _In:\n'
+				'	__init__ = lambda self, notin, lhs=None: (setattr(self, "notin", notin), setattr(self, "lhs", lhs), None)[2]\n'
+				'	__rand__ = lambda self, lhs: _In(self.notin, lhs)\n'
+				'	__and__ = lambda self, rhs: any(filter(lambda _x: _x == self.lhs, rhs)) ^ self.notin\n'
 			)
-			program_str = infixhelper + program_str
-
-		return program_str
+			prelude_str += inclass
+		if self.use_inhelper:
+			prelude_str += '_in = _In(False)\n'
+		if self.use_notinhelper:
+			prelude_str += '_notin = _In(True)\n'
+		if self.use_andhelper:
+			andclass = (
+				'class _And:\n'
+				'	__init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)\n'
+				'	__rxor__ = lambda self, lhs: _And(lhs)\n'
+				'	__xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]\n'
+				'	def impl_and(self, rhs):\n'
+				'		passed = True\n'
+				'		if self.lhs:\n'
+				'			self.op_ret = rhs\n'
+				'			passed = False\n'
+				'		if passed:\n'
+				'			self.op_ret = self.lhs\n'
+			)
+			prelude_str += andclass
+			prelude_str += '_and = _And()\n'
+		if self.use_orhelper:
+			orclass = (
+				'class _Or:\n'
+				'	__init__ = lambda self, lhs=None: setattr(self, "lhs", lhs)\n'
+				'	__ror__ = lambda self, lhs: _Or(lhs)\n'
+				'	__or__ = lambda self, rhs: (self.impl_or(rhs), self.op_ret)[1]\n'
+				'	def impl_or(self, rhs):\n'
+				'		passed = True\n'
+				'		if self.lhs:\n'
+				'			self.op_ret = self.lhs\n'
+				'			passed = False\n'
+				'		if passed:\n'
+				'			self.op_ret = rhs\n'
+			)
+			prelude_str += orclass
+			prelude_str += '_or = _Or()\n'
+		if self.use_nothelper:
+			notclass = (
+				'class _Not:\n'
+				'	__init__ = lambda self: setattr(self, "dup", 1)\n'
+				'	__and__ = lambda self, other: (self.impl_not(other), self.op_ret)[1]\n'
+				'	def impl_not(self, other):\n'
+				'		is_inst = isinstance(other, _Not)\n'
+				'		if is_inst:\n'
+				'			self.dup += 1\n'
+				'			self.op_ret = self\n'
+				'		if False == is_inst:\n'
+				'			self.impl_operate(other)\n'
+				'	def impl_operate(self, other):\n'
+				'		ret = other\n'
+				'		while self.dup > 0:\n'
+				'			ret = False == bool(ret)\n'
+				'			self.dup -= 1\n'
+				'		self.op_ret = ret\n'
+			)
+			prelude_str += notclass
+			prelude_str += '_not = _Not()\n'
+		return prelude_str + program_str
