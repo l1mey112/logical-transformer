@@ -218,6 +218,128 @@ print(True |_and| True)
 print(False |_or| True)
 ```
 
+**REFIX EVERYTHING - THIS IS HOW I REALLY DO IT**
+
+the implementation of `and` isn't `bool(x) & bool(y)`, it's `y if x else x`
+
+and `or` ? it's `x if x else y`
+
+the entire time i've thought otherwise. also `or` has less precedence than `and`, the below is parsed as such:
+
+```py
+print(1 or 2 and not not 0)
+print((1 or 2) and (not not 0))
+```
+
+and with our changes, the entire precedence tree is ruined.
+
+```py
+print(1 |_or| 2 |_and| False == False == 0)
+print((((1 |_or| 2) |_and| False) == False) == 0)
+```
+
+the relative precendece with operators should be preserved with `or` + `and` + `not`, and not should be implemented properly with a custom operator.
+
+well, lets reimplement it.
+
+```
+    /----->| &               |
+    | /--->| ^               |
+    | | /->| |               |
+    | | |  | ............... |
+    |-|-|--| in, not in, ... |
+    \-|-|--| not             |
+      \-|--| and             |
+        \--| or              |
+```
+
+`or` is implemented with `|`, `and` is implemented with `^`, `not` + `in` is implemented with `&`. this keeps good relative precedence among all operators.
+
+so how will implement not? use a merging operation.
+
+```py
+print(not not 0)
+print(_not& _not& 0)
+```
+
+so a `_not& _not& expr` can work, check if the right hand side `isinstance` of the operator, the increment a counter. if it's not, apply the operator to the right hand side the number of times the counter is. this is a sort of "stack" system that i came up with.
+
+```
+_not.dup = 0
+
+on `_not & _not` -> .dup += 1
+on `_not & 0`    -> apply not .dup times
+```
+
+oh yeah, we can't use `else`, so reimplement without the python ternary.
+
+```py
+class _Not:
+	__init__ = lambda self: setattr(self, "dup", 1)
+	__and__ = lambda self, other: (self.impl_not(other), self.op_ret)[1]
+	def impl_not(self, other):
+		is_inst = isinstance(other, _Not)
+		if is_inst:
+			self.dup += 1
+			self.op_ret = self
+		if False == is_inst:
+			self.impl_operate(other)
+	def impl_operate(self, other):
+		ret = other
+		while self.dup > 0:
+			ret = False == bool(ret)
+			self.dup -= 1
+		self.op_ret = ret
+```
+
+with, `and` + `or`:
+
+```py
+class _And:
+	__init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
+	__rxor__ = lambda self, lhs: _And(lhs)
+	__xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]
+	def impl_and(self, rhs):
+		passed = True
+		if self.lhs:
+			self.op_ret = rhs
+			passed = False
+		if passed:
+			self.op_ret = self.lhs
+class _Or:
+	__init__ = lambda self, lhs=None: setattr(self, "lhs", lhs)
+	__ror__ = lambda self, lhs: _Or(lhs)
+	__or__ = lambda self, rhs: (self.impl_or(rhs), self.op_ret)[1]
+	def impl_or(self, rhs):
+		passed = True
+		if self.lhs:
+			self.op_ret = self.lhs
+			passed = False
+		if passed:
+			self.op_ret = rhs
+```
+
+reimplement `in` with `&`, like we said.
+
+boolean inversion based on another boolean can be done easily with an exclusive or as well!
+
+```py
+class _In:
+	__init__ = lambda self, notin, lhs=None: (setattr(self, "notin", notin), setattr(self, "lhs", lhs), None)[2]
+	__rand__ = lambda self, lhs: _In(self.notin, lhs)
+	__and__ = lambda self, rhs: any(filter(lambda _x: _x == self.lhs, rhs)) ^ self.notin    
+```
+
+these are all of the operators
+
+```py
+_not = _Not()
+_and = _And()
+_or = _Or()
+_in = _In(False)
+_notin = _In(True)
+```
+
 # else
 
 ```py
@@ -424,11 +546,15 @@ all the logical expressions have a higher bind power than arithmetic. all we hav
 
 ignore the above, that was a parsing string manipulation mess. it's garbage, just use the method i defined above (the super secret one).
 
-use the below constructs then replace every `in` with `|_in|`, and `not in` with `|_notin|`. so much easier.
+
+i talked about the above constructs, just read there.
 
 ```py
-_in = _Infix(lambda x, y: any(filter(lambda _x: _x == x, y)))
-_notin = _Infix(lambda x, y: False == any(filter(lambda _x: _x == x, y)))
+_not = _Not()
+_and = _And()
+_or = _Or()
+_in = _In(False)
+_notin = _In(True)
 ```
 
 ---
@@ -460,51 +586,7 @@ if __name__ == "__main__":
 	main()
 ```
 > original
-```py
-class _Infix:
-	__init__ = lambda self, function : setattr(self, "function", function)
-	__ror__ = lambda self, other : _Infix(lambda x, self=self, other=other: self.function(other, x))
-	__or__ = lambda self, other : self.function(other)
-_and = _Infix(lambda x, y: bool(x) & bool(y))
-def _fizzbuzz0(limit):
-	global _ret_fizzbuzz0
-	_ret_fizzbuzz0 = None
-	fb_count = 0
-	_iter0 = iter(range(1, limit + 1))
-	_for0 = True
-	while _for0:
-		try:
-			num = next(_iter0)
-		except StopIteration:
-			_for0 = False
-			continue 
-		_if0 = True
-		if (num % 3 == 0) |_and| (num % 5 == 0):
-			_if0 = False
-			print("FizzBuzz")
-			fb_count += 1
-		if _if0 |_and| (num % 3 == 0):
-			_if0 = False
-			print("Fizz")
-		if _if0 |_and| (num % 5 == 0):
-			_if0 = False
-			print("Buzz")
-		if _if0:
-			print(num)
-	_ret_fizzbuzz0 = fb_count
-	yield
-	yield
-fizzbuzz = lambda limit : (next(_fizzbuzz0(limit)), _ret_fizzbuzz0)[1]
-def _main0():
-	global _ret_main0
-	_ret_main0 = None
-	n = 15
-	print("Playing FizzBuzz game up to", n)
-	fb_count = fizzbuzz(n)
-	print("Total FizzBuzz:", fb_count)
-	yield
-main = lambda : (next(_main0()), _ret_main0)[1]
-if __name__ == "__main__":
-	main()
-```
+
+*impl later*
+
 > transformation (as of recent)
