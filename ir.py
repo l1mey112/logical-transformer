@@ -1,7 +1,6 @@
 from typing import *
 from dataclasses import dataclass
 import keyword
-import sys
 import re
 
 @dataclass
@@ -80,38 +79,6 @@ def iter_skip(v: Iterator[Any], amount: int):
 		next(v)
 		amount -= 1
 
-def skip_to_identifers(src: str, start: int) -> int:
-	# traverse forward, skipping all strings and comments
-	#
-	# a = "'h\"ello' + 20"
-	# assert a[skip_to_identifers(a, 0):] == " + 20"
-
-	i = start
-	strch = None
-
-	while i < len(src):
-		ch = src[i]
-		
-		if ch.isspace():
-			pass	
-		elif strch is None:
-			if ch == "'" or ch == '"':
-				strch = ch
-			elif ch == "#":
-				i = len(src)
-				break
-			else:
-				break
-		else:
-			if ch == "\\":
-				i += 1
-			elif ch == strch:
-				strch = None
-		
-		i += 1
-
-	return i
-
 def iter_to_identifers(src: str):
 	# return iterator, yielding (bool, int, int)
 
@@ -147,20 +114,35 @@ def iter_to_identifers(src: str):
 				start = i + 1		
 		i += 1
 
-def find_inner_parens(src: str, start: int) -> int:
-	# assume all parens are balanced, don't bother checking `len()`
+def walk_expr_str(src: str) -> int | None:
+	# walk till `,` or EOL
+	# skipping past parens and strings
+	#
+	# pos = walk_expr_str("test(hello, 'along'), test")
+	# assert src[pos:].strip() == 'test'
 
-	paren_lim = 1
-	i = start + 1
-	while paren_lim > 0:
-		i = skip_to_identifers(src, i) # skip past strings
-		if src[i] == "(":
-			paren_lim += 1
-		elif src[i] == ")":
-			paren_lim -= 1
-		i += 1
-	
-	return i
+	parens = 0
+
+	for valid, start, end in iter_to_identifers(src):
+		if not valid:
+			continue
+
+		while start < end:
+			ch = src[start]
+			if ch == "(":
+				parens += 1
+			elif ch == ")":
+				parens -= 1
+			start += 1
+
+			if parens == 0 and ch == ",":
+				return start
+
+def rstrip_str(src: str, strip: str) -> str:
+	index = src.rfind(strip)
+	if index != -1:
+		return src[:index].strip()
+	return src.strip()
 
 class Program:
 	def __init__(self, program_src):
@@ -220,22 +202,22 @@ class Program:
 				case 'if':
 					# if expr:
 					#    ^^^^
-					expr_str = dedented_line[len(token):].strip().removesuffix(":")
+					expr_str = rstrip_str(dedented_line[len(token):], ":")
 					body = self.construct_ir(current_indent)
 					stmts.append(IRIf(self.construct_expr(expr_str), body))
 				case 'elif':
 					# elif expr:
 					#      ^^^^
-					expr_str = dedented_line[len(token):].strip().removesuffix(":")
+					expr_str = rstrip_str(dedented_line[len(token):], ":")
 					body = self.construct_ir(current_indent)
 					stmts.append(IRElif(self.construct_expr(expr_str), body))
 				case 'else':
 					stmts.append(IRElse(self.construct_ir(current_indent)))
 				case 'def':
 					components = dedented_line[len(token):].split('(', 1)
-					components[1] = components[1].removesuffix("):")
+					components[1] = rstrip_str(components[1], "):")
 					name = components[0].strip()
-					params = components[1].strip()
+					params = components[1]
 					body = self.construct_ir(current_indent)
 					func = IRFn(name, params, body)
 					stmts.append(func)
@@ -249,15 +231,21 @@ class Program:
 					#
 					# this will fail on assertations with strings containing commas
 					# -- i like to pick and choose.
-					
+
 					exprs = []
-					for line in dedented_line[len(token):].split(",", 1):
-						exprs.append(self.construct_expr(line.strip()))
+					expr_strs = dedented_line[len(token):]
+					pos = walk_expr_str(expr_strs)
+
+					if pos is None:
+						exprs.append(self.construct_expr(expr_strs.strip()))
+					else:
+						exprs.append(self.construct_expr(expr_strs[:pos - 1].strip()))
+						exprs.append(self.construct_expr(expr_strs[pos:].strip()))
 					stmts.append(IRAssert(exprs))
 				case 'while':
 					# while expr:
 					#       ^^^^
-					expr_str = dedented_line[len(token):].strip().removesuffix(":")
+					expr_str = rstrip_str(dedented_line[len(token):], ":")
 					body = self.construct_ir(current_indent)
 					stmts.append(IRWhile(self.construct_expr(expr_str), body))
 				case 'for':
@@ -267,7 +255,7 @@ class Program:
 					#     -- use              : `.split("in", 1)`
 					#     -- will not fail on : `v in "hello in this"`
 
-					expr_strs = dedented_line[len(token):].strip().removesuffix(":").split("in", 1)
+					expr_strs = rstrip_str(dedented_line[len(token):], ":").split("in", 1)
 					assert len(expr_strs) == 2
 					expr_strs[0] = expr_strs[0].strip()
 					expr_strs[1] = expr_strs[1].strip()
@@ -280,7 +268,7 @@ class Program:
 					
 					if dedented_line_no_comments[len(dedented_line_no_comments) - 1:] == ":":
 						assert keyword.iskeyword(token), token # it should be.
-						expr_str = dedented_line[len(token):].strip().removesuffix(":")
+						expr_str = rstrip_str(dedented_line[len(token):], ":")
 						body = self.construct_ir(current_indent)
 						stmts.append(IRIndent(token, self.construct_expr(expr_str), body))
 					else:
@@ -336,7 +324,7 @@ class Program:
 					nbody.append(IRIf(expr, tbody))
 				case IRElif(expr, body):
 					transformed = self.transform_stmts_recurse(op.body)
-					tcond = IRUnit(f"{temp_var} and ({expr.src})") # quoted expryou've probably asked this so i'll do
+					tcond = IRUnit(f"{temp_var} and ({expr.src})") # quoted expr
 					tbody = [IRUnit(f"{temp_var} = False")] + transformed
 					nbody.append(IRIf(tcond, tbody))
 				case IRElse(body):
@@ -424,7 +412,7 @@ class Program:
 			match op:
 				case IRAssert(exprs):
 					raise_str = "raise AssertionError" if len(exprs) == 1 else f"raise AssertionError({self.transpile_expr(exprs[1])})"
-					new_expr = IRIf(IRUnit(f"not {self.transpile_expr(exprs[0])}"), [IRUnit(raise_str)])
+					new_expr = IRIf(IRUnit(f"not ({self.transpile_expr(exprs[0])})"), [IRUnit(raise_str)])
 					nbody.append(new_expr)
 				case IRWhile():
 					nbody += self.transform_while(op)
@@ -598,6 +586,7 @@ class Program:
 
 	def transpile(self) -> str:
 		program_str = "\n".join(self.transpile_recurse(self.program, 0))
+
 		prelude_str = ""
 
 		if self.use_inhelper or self.use_notinhelper:
