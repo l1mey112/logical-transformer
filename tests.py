@@ -90,12 +90,62 @@ def test_program_transformations():
 		)
 	)
 
-	# test transforming another assert statement to raise an exception
+	# test transforming a function to a lambda definition
 	driver(
-		"assert test(hello, 'along'), test",
 		(
-			"if not (test(hello, 'along')):\n"
-			"	raise AssertionError(test)"
+			"def test():\n"
+			"	pass"
+		),
+		(
+			"def _test0():\n"
+			"	global _ret_test0\n"
+			"	_ret_test0 = None\n"
+			"	pass\n"
+			"	yield\n"
+			"test = lambda : (next(_test0()), _ret_test0)[1]"
+		)
+	)
+
+	# test transforming a break statement and else
+	driver(
+		(
+			"while cond():\n"
+			"	if test():\n"
+			"		break\n"
+			"	else:\n"
+			"		pass"
+		),
+		(
+			"_while0 = True\n"
+			"while _while0 and (cond()):\n"
+			"	_if0 = True\n"
+			"	if test():\n"
+			"		_if0 = False\n"
+			"		_while0 = False\n"
+			"		continue \n"
+			"	if _if0:\n"
+			"		pass"
+		)
+	)
+
+	# test transforming a break statement and else
+	driver(
+		(
+			"vals = {'a': 1, 'b': 2, 'c': 3}\n"
+			"for k, v in vals.items():\n"
+			"	print(k, v)"
+		),
+		(
+			"vals = {'a': 1, 'b': 2, 'c': 3}\n"
+			"_iter0 = iter(vals.items())\n"
+			"_for0 = True\n"
+			"while _for0:\n"
+			"	try:\n"
+			"		k, v = next(_iter0)\n"
+			"	except StopIteration:\n"
+			"		_for0 = False\n"
+			"		continue \n"
+			"	print(k, v)"
 		)
 	)
 
