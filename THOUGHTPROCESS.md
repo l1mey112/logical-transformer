@@ -1,3 +1,9 @@
+## **infinitely evolving document throughout the course of the project**
+
+**note: didn't use the below representation, expressions were kept as flat strings, and the representation was not lisp like (it was supposed to be deserialised straight back into python)**
+
+**note (again): many things go unused, striked out. as i said, this was an evolving document**
+
 # architecture
 
 > it's like writing a tiny specialised compiler
