@@ -281,48 +281,48 @@ oh yeah, we can't use `else`, so reimplement without the python ternary.
 
 ```py
 class _Not:
-	__init__ = lambda self: setattr(self, "dup", 1)
-	__and__ = lambda self, other: (self.impl_not(other), self.op_ret)[1]
-	def impl_not(self, other):
-		is_inst = isinstance(other, _Not)
-		if is_inst:
-			self.dup += 1
-			self.op_ret = self
-		if False == is_inst:
-			self.impl_operate(other)
-	def impl_operate(self, other):
-		ret = other
-		while self.dup > 0:
-			ret = False == bool(ret)
-			self.dup -= 1
-		self.op_ret = ret
+    __init__ = lambda self: setattr(self, "dup", 1)
+    __and__ = lambda self, other: (self.impl_not(other), self.op_ret)[1]
+    def impl_not(self, other):
+        is_inst = isinstance(other, _Not)
+        if is_inst:
+            self.dup += 1
+            self.op_ret = self
+        if False == is_inst:
+            self.impl_operate(other)
+    def impl_operate(self, other):
+        ret = other
+        while self.dup > 0:
+            ret = False == bool(ret)
+            self.dup -= 1
+        self.op_ret = ret
 ```
 
 with, `and` + `or`:
 
 ```py
 class _And:
-	__init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
-	__rxor__ = lambda self, lhs: _And(lhs)
-	__xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]
-	def impl_and(self, rhs):
-		passed = True
-		if self.lhs:
-			self.op_ret = rhs
-			passed = False
-		if passed:
-			self.op_ret = self.lhs
+    __init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
+    __rxor__ = lambda self, lhs: _And(lhs)
+    __xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]
+    def impl_and(self, rhs):
+        passed = True
+        if self.lhs:
+            self.op_ret = rhs
+            passed = False
+        if passed:
+            self.op_ret = self.lhs
 class _Or:
-	__init__ = lambda self, lhs=None: setattr(self, "lhs", lhs)
-	__ror__ = lambda self, lhs: _Or(lhs)
-	__or__ = lambda self, rhs: (self.impl_or(rhs), self.op_ret)[1]
-	def impl_or(self, rhs):
-		passed = True
-		if self.lhs:
-			self.op_ret = self.lhs
-			passed = False
-		if passed:
-			self.op_ret = rhs
+    __init__ = lambda self, lhs=None: setattr(self, "lhs", lhs)
+    __ror__ = lambda self, lhs: _Or(lhs)
+    __or__ = lambda self, rhs: (self.impl_or(rhs), self.op_ret)[1]
+    def impl_or(self, rhs):
+        passed = True
+        if self.lhs:
+            self.op_ret = self.lhs
+            passed = False
+        if passed:
+            self.op_ret = rhs
 ```
 
 reimplement `in` with `&`, like we said.
@@ -331,9 +331,9 @@ boolean inversion based on another boolean can be done easily with an exclusive 
 
 ```py
 class _In:
-	__init__ = lambda self, notin, lhs=None: (setattr(self, "notin", notin), setattr(self, "lhs", lhs), None)[2]
-	__rand__ = lambda self, lhs: _In(self.notin, lhs)
-	__and__ = lambda self, rhs: any(filter(lambda _x: _x == self.lhs, rhs)) ^ self.notin    
+    __init__ = lambda self, notin, lhs=None: (setattr(self, "notin", notin), setattr(self, "lhs", lhs), None)[2]
+    __rand__ = lambda self, lhs: _In(self.notin, lhs)
+    __and__ = lambda self, rhs: any(filter(lambda _x: _x == self.lhs, rhs)) ^ self.notin    
 ```
 
 these are all of the operators
@@ -401,13 +401,13 @@ remember to put parens around the condition expression if further expression tra
 
 ```py
 if cond():
-	print('test0')
+    print('test0')
 elif cond():
-	print('test1')
+    print('test1')
 elif cond():
-	print('test2')
+    print('test2')
 else:
-	print('test3')
+    print('test3')
 ```
 > original
 ```py
@@ -499,12 +499,12 @@ for v in range(0, 15):
 _iter0 = iter(range(0, 15))
 _for0 = True
 while _for0:
-	try:
-		v = next(_iter0)
-	except StopIteration:
-		_for0 = False
-		continue
-	print(v)
+    try:
+        v = next(_iter0)
+    except StopIteration:
+        _for0 = False
+        continue
+    print(v)
 ```
 > transformation
 
@@ -569,83 +569,83 @@ _notin = _In(True)
 
 ```py
 def fizzbuzz(limit):
-	fb_count = 0
-	for num in range(1, limit + 1):
-		if (num % 3 == 0) and (num % 5 == 0):
-			print("FizzBuzz")
-			fb_count += 1
-		elif num % 3 == 0:
-			print("Fizz")
-		elif num % 5 == 0:
-			print("Buzz")
-		else:
-			print(num)
-	return fb_count
+    fb_count = 0
+    for num in range(1, limit + 1):
+        if (num % 3 == 0) and (num % 5 == 0):
+            print("FizzBuzz")
+            fb_count += 1
+        elif num % 3 == 0:
+            print("Fizz")
+        elif num % 5 == 0:
+            print("Buzz")
+        else:
+            print(num)
+    return fb_count
 
 def main():
-	n = 15
-	print("Playing FizzBuzz game up to", n)
-	fb_count = fizzbuzz(n)
-	print("Total FizzBuzz:", fb_count)
+    n = 15
+    print("Playing FizzBuzz game up to", n)
+    fb_count = fizzbuzz(n)
+    print("Total FizzBuzz:", fb_count)
 
 if __name__ == "__main__":
-	main()
+    main()
 ```
 > original
 
 ```py
 class _And:
-	__init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
-	__rxor__ = lambda self, lhs: _And(lhs)
-	__xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]
-	def impl_and(self, rhs):
-		passed = True
-		if self.lhs:
-			self.op_ret = rhs
-			passed = False
-		if passed:
-			self.op_ret = self.lhs
+    __init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
+    __rxor__ = lambda self, lhs: _And(lhs)
+    __xor__ = lambda self, rhs: (self.impl_and(rhs), self.op_ret)[1]
+    def impl_and(self, rhs):
+        passed = True
+        if self.lhs:
+            self.op_ret = rhs
+            passed = False
+        if passed:
+            self.op_ret = self.lhs
 _and = _And()
 def _fizzbuzz0(limit):
-	global _ret_fizzbuzz0
-	_ret_fizzbuzz0 = None
-	fb_count = 0
-	_iter0 = iter(range(1, limit + 1))
-	_for0 = True
-	while _for0:
-		try:
-			num = next(_iter0)
-		except StopIteration:
-			_for0 = False
-			continue 
-		_if0 = True
-		if (num % 3 == 0) ^_and^ (num % 5 == 0):
-			_if0 = False
-			print("FizzBuzz")
-			fb_count += 1
-		if _if0 ^_and^ (num % 3 == 0):
-			_if0 = False
-			print("Fizz")
-		if _if0 ^_and^ (num % 5 == 0):
-			_if0 = False
-			print("Buzz")
-		if _if0:
-			print(num)
-	_ret_fizzbuzz0 = fb_count
-	yield
-	yield
+    global _ret_fizzbuzz0
+    _ret_fizzbuzz0 = None
+    fb_count = 0
+    _iter0 = iter(range(1, limit + 1))
+    _for0 = True
+    while _for0:
+        try:
+            num = next(_iter0)
+        except StopIteration:
+            _for0 = False
+            continue 
+        _if0 = True
+        if (num % 3 == 0) ^_and^ (num % 5 == 0):
+            _if0 = False
+            print("FizzBuzz")
+            fb_count += 1
+        if _if0 ^_and^ (num % 3 == 0):
+            _if0 = False
+            print("Fizz")
+        if _if0 ^_and^ (num % 5 == 0):
+            _if0 = False
+            print("Buzz")
+        if _if0:
+            print(num)
+    _ret_fizzbuzz0 = fb_count
+    yield
+    yield
 fizzbuzz = lambda limit : (next(_fizzbuzz0(limit)), _ret_fizzbuzz0)[1]
 def _main0():
-	global _ret_main0
-	_ret_main0 = None
-	n = 15
-	print("Playing FizzBuzz game up to", n)
-	fb_count = fizzbuzz(n)
-	print("Total FizzBuzz:", fb_count)
-	yield
+    global _ret_main0
+    _ret_main0 = None
+    n = 15
+    print("Playing FizzBuzz game up to", n)
+    fb_count = fizzbuzz(n)
+    print("Total FizzBuzz:", fb_count)
+    yield
 main = lambda : (next(_main0()), _ret_main0)[1]
 if __name__ == "__main__":
-	main()
+    main()
 ```
 
 > transformation (as of recent)
