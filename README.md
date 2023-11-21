@@ -32,7 +32,7 @@ def main():
 if __name__ == "__main__":
 	main()
 ```
-
+> original
 ```py
 class _And:
 	__init__ = lambda self, lhs=None : setattr(self, "lhs", lhs)
@@ -87,3 +87,4 @@ main = lambda : (next(_main0()), _ret_main0)[1]
 if __name__ == "__main__":
 	main()
 ```
+> transformed
